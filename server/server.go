@@ -102,22 +102,50 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 			logger.Error(err)
 			return
 		}
+		if creds.SecretList == nil {
+			writer.WriteHeader(http.StatusBadRequest)
+			writer.Write([]byte("No secrets were sent in request"))
+			return
+		}
+
 		if err = storeUserSecrets(creds); err != nil {
 			logger.Error(err)
 			return
 		}
 
 		writer.WriteHeader(http.StatusOK)
-		writer.Write([]byte("Secret added"))
+		writer.Write([]byte("Secrets added"))
 	} else if request.Method == http.MethodGet {
 		if err = verifyLogin(creds, writer); err != nil {
 			logger.Error(err)
 			return
 		}
-		if err = getUserSecrets(creds.Username); err != nil {
-			logger.Error(err)
+		secrets, err := getUserSecrets(creds.Username)
+		if err != nil {
+			switch err.(type) {
+			case *os.PathError:
+				writer.WriteHeader(http.StatusNoContent)
+				writer.Write([]byte("You do not have any secrets stored"))
+			case *NoSecrets:
+				writer.WriteHeader(http.StatusNoContent)
+				writer.Write([]byte("You do not have any secrets stored"))
+			default:
+				logger.Error(err)
+				writer.WriteHeader(http.StatusInternalServerError)
+				writer.Write([]byte("500 Server Error"))
+			}
 			return
 		}
+
+		marshalledSecrets, err := json.Marshal(secrets)
+		if err != nil {
+			logger.Error(err)
+			writer.WriteHeader(http.StatusInternalServerError)
+			writer.Write([]byte("500 Server Error"))
+		}
+
+		writer.WriteHeader(http.StatusOK)
+		writer.Write(marshalledSecrets)
 
 	} else if request.Method == http.MethodDelete {
 		if err = verifyLogin(creds, writer); err != nil {
@@ -162,13 +190,7 @@ func storeCredentials(creds Credentials) error {
 		return err
 	}
 
-	f, err := os.OpenFile("db/users", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if _, err = f.Write(storeUser); err != nil {
+	if err = writeToDatabase("db/users", storeUser); err != nil {
 		return err
 	}
 
@@ -182,9 +204,6 @@ func verifyLogin(creds Credentials, writer http.ResponseWriter) error {
 		case *UserDoesNotExist:
 			writer.WriteHeader(http.StatusUnauthorized)
 			writer.Write([]byte("Authentication failed. Invalid username or password"))
-		// case *NoSecrets:
-		// 	writer.WriteHeader(http.StatusNoContent)
-		// 	writer.Write([]byte("You do not have any secrets stored."))
 		default:
 			logger.Error(err)
 			writer.WriteHeader(http.StatusInternalServerError)
@@ -217,7 +236,7 @@ func loadCredentials(user string) (CredentialStorageStructure, error) {
 		if err != nil && err == io.EOF {
 			break
 		} else if err != nil {
-			return CredentialStorageStructure{}, nil
+			return CredentialStorageStructure{}, err
 		}
 
 		var creds CredentialStorageStructure
@@ -234,45 +253,131 @@ func loadCredentials(user string) (CredentialStorageStructure, error) {
 
 // Store the secrets of a user in a file.
 func storeUserSecrets(creds Credentials) error {
-	err := getUserSecrets(creds.Username)
+	secrets, err := getUserSecrets(creds.Username)
+	var secretStorage SecretStorageStructure
 	if err != nil {
 		switch err.(type) {
 		case *os.PathError:
+			secretStorage.Username = creds.Username
+			secretStorage.SecretList = creds.SecretList
+		case *NoSecrets:
+			secretStorage.Username = creds.Username
+			secretStorage.SecretList = creds.SecretList
 		default:
 			return err
+		}
+	} else {
+		secretStorage = secrets
+		for k, v := range creds.SecretList {
+			secretStorage.SecretList[k] = v
 		}
 	}
 
 	os.MkdirAll("db", os.ModePerm)
 
-	storeUser, err := json.Marshal(SecretStorageStructure{
-		Username:   creds.Username,
-		SecretList: creds.SecretList,
-	})
-	storeUser = append(storeUser, []byte("\n")...)
+	mstoreSecrets, err := json.Marshal(secretStorage)
+	mstoreSecrets = append(mstoreSecrets, []byte("\n")...)
 	if err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile("db/users", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if _, err = f.Write(storeUser); err != nil {
+	if err = updateSecretsDatabase(creds.Username, mstoreSecrets); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func getUserSecrets(user string) error {
+func getUserSecrets(user string) (SecretStorageStructure, error) {
 	file, err := os.Open("db/secrets")
+	if err != nil {
+		return SecretStorageStructure{}, err
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	for {
+		line, err := reader.ReadBytes(10)
+		if err != nil && err == io.EOF {
+			break
+		} else if err != nil {
+			return SecretStorageStructure{}, err
+		}
+
+		var secrets SecretStorageStructure
+		json.Unmarshal(line, &secrets)
+
+		if secrets.Username == user {
+			return secrets, nil
+		}
+	}
+
+	return SecretStorageStructure{}, NewNoSecrets(errors.New("user has no secrets"))
+}
+
+func updateSecretsDatabase(user string, data []byte) error {
+	var database []byte
+
+	file, err := os.Open("db/secrets")
+	if err != nil {
+		switch err.(type) {
+		case *os.PathError:
+			database = data
+		default:
+			return err
+		}
+	} else {
+		defer file.Close()
+
+		reader := bufio.NewReader(file)
+		for {
+			line, err := reader.ReadBytes(10)
+			if err != nil && err == io.EOF {
+				break
+			} else if err != nil {
+				return err
+			}
+
+			var secrets SecretStorageStructure
+			json.Unmarshal(line, &secrets)
+
+			if secrets.Username == user {
+				database = append(database, data...)
+			} else {
+				database = append(database, line...)
+			}
+		}
+	}
+
+	if err = writeToDatabase("db/secrets", database); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// writeToDatabase create or open the database file and
+func writeToDatabase(filename string, data []byte) error {
+	var f *os.File
+	var err error
+
+	if filename == "db/users" {
+		f, err = os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	} else if filename == "db/secrets" {
+		f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	} else {
+		err = errors.New("unknown database")
+	}
+
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+
+	defer f.Close()
+
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
 
 	return nil
 }

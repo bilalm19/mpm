@@ -7,7 +7,7 @@ func Fatal(message interface{}) {
 }
 
 func Error(message interface{}) {
-	log.Printf("\033[1;31m[Fatal]\033[0m %s\n", message)
+	log.Printf("\033[1;31m[Error]\033[0m %s\n", message)
 }
 
 func Info(message interface{}) {
