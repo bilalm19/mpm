@@ -31,7 +31,7 @@ type CredentialStorageStructure struct {
 // the file database.
 type SecretStorageStructure struct {
 	Username   string
-	SecretList map[string]string
+	SecretList map[string][]byte
 }
 
 // New creates and returns an MPMServer.

@@ -8,7 +8,6 @@ import (
 
 func main() {
 
-	// aes.NewCipher([]byte("password\n"))
 	mpmServer := server.New()
 	go mpmServer.StartEdgeServer()
 

@@ -123,11 +123,15 @@ func storeUserSecrets(creds Credentials) error {
 		switch err.(type) {
 		case *os.PathError:
 			secretStorage.Username = creds.Username
-			secretStorage.SecretList = creds.SecretList
+			if secretStorage.SecretList, err = encryptMap([]byte(creds.Password), creds.SecretList); err != nil {
+				return err
+			}
 			hasSecrets = false
 		case *NoSecrets:
 			secretStorage.Username = creds.Username
-			secretStorage.SecretList = creds.SecretList
+			if secretStorage.SecretList, err = encryptMap([]byte(creds.Password), creds.SecretList); err != nil {
+				return err
+			}
 			hasSecrets = false
 		default:
 			return err
@@ -135,7 +139,15 @@ func storeUserSecrets(creds Credentials) error {
 	} else {
 		secretStorage = secrets
 		for k, v := range creds.SecretList {
-			secretStorage.SecretList[k] = v
+			// Do not re-encrypt the values that have already been added to the
+			// database.
+			if _, ok := secretStorage.SecretList[k]; !ok {
+				ciphertext, err := encryptaesgcm([]byte(creds.Password), []byte(v))
+				if err != nil {
+					return err
+				}
+				secretStorage.SecretList[k] = ciphertext
+			}
 		}
 	}
 
