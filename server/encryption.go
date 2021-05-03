@@ -13,6 +13,11 @@ import (
 // Encrypt the plaintext secret using AES-256 with GCM-96.
 func encryptaesgcm(masterpass, plaintext []byte) ([]byte, error) {
 	keyLength := 2 * aes.BlockSize
+
+	// The key length will be 32 bytes no matter what. If the length of the
+	// masterpass is less than 32, it will be padded with 0s to get it to 32,
+	// in order to make use of AES-256. If the length of masterpass is greater
+	// or equal to 32, the first 32 bytes will be used to make the key.
 	key := make([]byte, keyLength)
 	if len(masterpass) >= keyLength {
 		copy(key, masterpass[0:keyLength])
