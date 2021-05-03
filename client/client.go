@@ -70,7 +70,10 @@ func Login(rt uint8) error {
 		return err
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusNoContent {
+		logger.Warning("You do not have any secrets stored")
+		return nil
+	} else if resp.StatusCode != http.StatusOK {
 		logger.Error("Server responded with " + string(body))
 		return nil
 	}

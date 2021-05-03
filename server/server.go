@@ -118,9 +118,9 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		if err != nil {
 			switch err.(type) {
 			case *os.PathError:
-				respondClient(writer, http.StatusNoContent, []byte("You do not have any secrets stored"))
+				respondClient(writer, http.StatusNoContent, []byte(""))
 			case *NoSecrets:
-				respondClient(writer, http.StatusNoContent, []byte("You do not have any secrets stored"))
+				respondClient(writer, http.StatusNoContent, []byte(""))
 			default:
 				logger.Error(err)
 				respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
@@ -141,6 +141,15 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 			logger.Error(err)
 			return
 		}
+
+		err = deleteAccount(creds.Username)
+		if err != nil {
+			logger.Error(err)
+			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
+			return
+		}
+
+		respondClient(writer, http.StatusOK, []byte("Your account has been deleted."))
 	} else {
 		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
 

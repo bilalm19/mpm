@@ -18,7 +18,11 @@ import (
 // respondClient send back response to client along with the http status code.
 func respondClient(writer http.ResponseWriter, code int, resp []byte) {
 	writer.WriteHeader(code)
-	writer.Write(resp)
+	if code != http.StatusNoContent {
+		if _, err := writer.Write(resp); err != nil {
+			logger.Error(err)
+		}
+	}
 }
 
 func decodeClientMessage(body io.ReadCloser, writer http.ResponseWriter) (credentials, error) {
@@ -89,7 +93,8 @@ func loadCredentials(user string) (credentialStorageStructure, error) {
 	file, err := os.Open("db/users")
 	if err != nil {
 		userDatabaseMutex.Unlock()
-		return credentialStorageStructure{}, err
+		return credentialStorageStructure{},
+			NewUserDoesNotExist(err)
 	}
 	defer file.Close()
 
@@ -240,6 +245,10 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 		}
 	}
 
+	// If user does not have secrets stored in the database already, simply
+	// append the user data to the database. Otherwise, the database has
+	// already been updated in the above steps, so the following line can be
+	// skipped
 	if !hasSecrets {
 		database = append(database, data...)
 	}
@@ -250,6 +259,86 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 	}
 
 	return nil
+}
+
+// Delete the user's account along with any secrets associated with them.
+func deleteAccount(user string) error {
+	if err := removeCredentials(user); err != nil {
+		return err
+	}
+
+	return removeSecrets(user)
+}
+
+func removeCredentials(user string) error {
+	userDatabaseMutex.Lock()
+	file, err := os.Open("db/users")
+	if err != nil {
+		userDatabaseMutex.Unlock()
+		return err
+	}
+	defer file.Close()
+
+	var fileLines []byte
+	reader := bufio.NewReader(file)
+	for {
+		line, err := reader.ReadBytes(10)
+		if err != nil && err == io.EOF {
+			break
+		} else if err != nil {
+			userDatabaseMutex.Unlock()
+			return err
+		}
+
+		var creds credentialStorageStructure
+		json.Unmarshal(line, &creds)
+
+		if creds.Username != user {
+			fileLines = append(fileLines, line...)
+		}
+	}
+
+	userDatabaseMutex.Unlock()
+	return writeToDatabase("db/usersdel", fileLines)
+}
+
+// Remove secrets associated with the user's account.
+func removeSecrets(user string) error {
+	hasSecrets := false
+	secretDatabaseMutex.Lock()
+	file, err := os.Open("db/secrets")
+	if err != nil {
+		secretDatabaseMutex.Unlock()
+		return err
+	}
+	defer file.Close()
+
+	var fileLines []byte
+	reader := bufio.NewReader(file)
+	for {
+		line, err := reader.ReadBytes(10)
+		if err != nil && err == io.EOF {
+			break
+		} else if err != nil {
+			secretDatabaseMutex.Unlock()
+			return err
+		}
+
+		var secret secretStorageStructure
+		json.Unmarshal(line, &secret)
+
+		if secret.Username != user {
+			fileLines = append(fileLines, line...)
+		} else {
+			hasSecrets = true
+		}
+	}
+
+	secretDatabaseMutex.Unlock()
+	if hasSecrets {
+		err = writeToDatabase("db/secrets", fileLines)
+	}
+	return err
 }
 
 // writeToDatabase create or open the database file and
@@ -263,6 +352,9 @@ func writeToDatabase(filename string, data []byte) error {
 	} else if filename == "db/secrets" {
 		secretDatabaseMutex.Lock()
 		f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	} else if filename == "db/usersdel" {
+		userDatabaseMutex.Lock()
+		f, err = os.OpenFile("db/users", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	} else {
 		err = errors.New("unknown database")
 	}

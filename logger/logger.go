@@ -17,3 +17,7 @@ func Info(message interface{}) {
 func Infof(message interface{}) {
 	log.Printf("\033[1;36m[Info]\033[0m %+v", message)
 }
+
+func Warning(message interface{}) {
+	log.Printf("\033[1;33m[Warn]\033[0m %s\n", message)
+}
