@@ -335,6 +335,8 @@ func removeSecrets(user string) error {
 	}
 
 	secretDatabaseMutex.Unlock()
+
+	// Do not update the secrets database if user has not stored any secrets.
 	if hasSecrets {
 		err = writeToDatabase("db/secrets", fileLines)
 	}
