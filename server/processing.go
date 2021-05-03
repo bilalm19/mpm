@@ -21,9 +21,9 @@ func respondClient(writer http.ResponseWriter, code int, resp []byte) {
 	writer.Write(resp)
 }
 
-func decodeClientMessage(body io.ReadCloser, writer http.ResponseWriter) (Credentials, error) {
+func decodeClientMessage(body io.ReadCloser, writer http.ResponseWriter) (credentials, error) {
 	decoder := json.NewDecoder(body)
-	var creds Credentials
+	var creds credentials
 	err := decoder.Decode(&creds)
 	if err != nil {
 		logger.Error(err)
@@ -35,7 +35,7 @@ func decodeClientMessage(body io.ReadCloser, writer http.ResponseWriter) (Creden
 	return creds, nil
 }
 
-func storeCredentials(creds Credentials) error {
+func storeCredentials(creds credentials) error {
 	randNum := rand.Uint32()
 	salt := make([]byte, 4)
 	binary.LittleEndian.PutUint32(salt, randNum)
@@ -43,7 +43,7 @@ func storeCredentials(creds Credentials) error {
 
 	os.MkdirAll("db", os.ModePerm)
 
-	storeUser, err := json.Marshal(CredentialStorageStructure{
+	storeUser, err := json.Marshal(credentialStorageStructure{
 		Username: creds.Username,
 		Password: key,
 		Salt:     salt,
@@ -60,7 +60,7 @@ func storeCredentials(creds Credentials) error {
 	return nil
 }
 
-func verifyLogin(creds Credentials, writer http.ResponseWriter) error {
+func verifyLogin(creds credentials, writer http.ResponseWriter) error {
 	storedCreds, err := loadCredentials(creds.Username)
 	if err != nil {
 		switch err.(type) {
@@ -85,10 +85,10 @@ func verifyLogin(creds Credentials, writer http.ResponseWriter) error {
 	return nil
 }
 
-func loadCredentials(user string) (CredentialStorageStructure, error) {
+func loadCredentials(user string) (credentialStorageStructure, error) {
 	file, err := os.Open("db/users")
 	if err != nil {
-		return CredentialStorageStructure{}, err
+		return credentialStorageStructure{}, err
 	}
 	defer file.Close()
 
@@ -99,10 +99,10 @@ func loadCredentials(user string) (CredentialStorageStructure, error) {
 		if err != nil && err == io.EOF {
 			break
 		} else if err != nil {
-			return CredentialStorageStructure{}, err
+			return credentialStorageStructure{}, err
 		}
 
-		var creds CredentialStorageStructure
+		var creds credentialStorageStructure
 		json.Unmarshal(line, &creds)
 
 		if creds.Username == user {
@@ -110,15 +110,15 @@ func loadCredentials(user string) (CredentialStorageStructure, error) {
 		}
 	}
 
-	return CredentialStorageStructure{},
+	return credentialStorageStructure{},
 		NewUserDoesNotExist(errors.New("user does not exist"))
 }
 
 // Store the secrets of a user in a file.
-func storeUserSecrets(creds Credentials) error {
+func storeUserSecrets(creds credentials) error {
 	hasSecrets := true
 	secrets, err := getUserSecrets(creds.Username)
-	var secretStorage SecretStorageStructure
+	var secretStorage secretStorageStructure
 	if err != nil {
 		switch err.(type) {
 		case *os.PathError:
@@ -166,10 +166,10 @@ func storeUserSecrets(creds Credentials) error {
 	return nil
 }
 
-func getUserSecrets(user string) (SecretStorageStructure, error) {
+func getUserSecrets(user string) (secretStorageStructure, error) {
 	file, err := os.Open("db/secrets")
 	if err != nil {
-		return SecretStorageStructure{}, err
+		return secretStorageStructure{}, err
 	}
 	defer file.Close()
 
@@ -179,10 +179,10 @@ func getUserSecrets(user string) (SecretStorageStructure, error) {
 		if err != nil && err == io.EOF {
 			break
 		} else if err != nil {
-			return SecretStorageStructure{}, err
+			return secretStorageStructure{}, err
 		}
 
-		var secrets SecretStorageStructure
+		var secrets secretStorageStructure
 		json.Unmarshal(line, &secrets)
 
 		if secrets.Username == user {
@@ -190,7 +190,7 @@ func getUserSecrets(user string) (SecretStorageStructure, error) {
 		}
 	}
 
-	return SecretStorageStructure{}, NewNoSecrets(errors.New("user has no secrets"))
+	return secretStorageStructure{}, NewNoSecrets(errors.New("user has no secrets"))
 }
 
 func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
@@ -217,7 +217,7 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 				return err
 			}
 
-			var secrets SecretStorageStructure
+			var secrets secretStorageStructure
 			json.Unmarshal(line, &secrets)
 
 			if secrets.Username == user {

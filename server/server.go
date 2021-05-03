@@ -13,23 +13,23 @@ type MPMServer struct {
 	HTTPServer *http.Server
 }
 
-type Credentials struct {
+type credentials struct {
 	Username   string
 	Password   string
 	SecretList map[string]string // Only used by login endpoint.
 }
 
-// CredentialStorageStructure is the data structure used for storing the credentials in
+// credentialStorageStructure is the data structure used for storing the credentials in
 // the file database.
-type CredentialStorageStructure struct {
+type credentialStorageStructure struct {
 	Username string
 	Password []byte
 	Salt     []byte
 }
 
-// SecretStorageStructure is the data structure used for storing the secrets in
+// secretStorageStructure is the data structure used for storing the secrets in
 // the file database.
-type SecretStorageStructure struct {
+type secretStorageStructure struct {
 	Username   string
 	SecretList map[string][]byte
 }
@@ -123,7 +123,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 
-		marshalledSecrets, err := json.Marshal(secrets)
+		marshalledSecrets, err := json.Marshal(secrets.SecretList)
 		if err != nil {
 			logger.Error(err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))

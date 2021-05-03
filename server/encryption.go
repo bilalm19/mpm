@@ -46,24 +46,6 @@ func encryptaesgcm(masterpass, plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func decryptaesgcm(masterpass, ciphertext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(masterpass)
-	if err != nil {
-		return nil, err
-	}
-
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the nonce from the ciphertext
-	nonce := ciphertext[:12]
-
-	return aesgcm.Open(nil, nonce, ciphertext[12:], nil)
-
-}
-
 func bytesTohex(data []byte) string {
 	return fmt.Sprintf("%x", data)
 }

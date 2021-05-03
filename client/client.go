@@ -3,12 +3,14 @@ package client
 import (
 	"bufio"
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"mpm/logger"
-	"mpm/server"
 	"net/http"
 	"os"
 	"strings"
@@ -24,6 +26,12 @@ const (
 	get
 	del
 )
+
+type credentialsRequest struct {
+	Username   string
+	Password   string
+	SecretList map[string]string
+}
 
 func Login(rt uint8) error {
 	creds, err := enterCredentials(false)
@@ -62,10 +70,25 @@ func Login(rt uint8) error {
 		return err
 	}
 
-	if resp.StatusCode == http.StatusOK {
-		logger.Info("Server responded with " + string(body))
-	} else {
+	if resp.StatusCode != http.StatusOK {
 		logger.Error("Server responded with " + string(body))
+		return nil
+	}
+
+	secrets := make(map[string][]byte)
+	if ReqType(rt) == get {
+		if err = json.Unmarshal(body, &secrets); err != nil {
+			return err
+		}
+		for k, v := range secrets {
+			secrets[k], err = decryptaesgcm([]byte(creds.Password), v)
+			if err != nil {
+				return err
+			}
+			log.Printf("%s: %s\n", k, secrets[k])
+		}
+	} else {
+		logger.Info("Server responded with " + string(body))
 	}
 
 	return nil
@@ -98,21 +121,21 @@ func SignUp() error {
 	return nil
 }
 
-func enterCredentials(signup bool) (server.Credentials, error) {
+func enterCredentials(signup bool) (credentialsRequest, error) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter username: ")
 	username, err := reader.ReadString('\n')
 	username = strings.Replace(username, "\n", "", -1)
 
 	if err != nil {
-		return server.Credentials{}, err
+		return credentialsRequest{}, err
 	}
 
 	fmt.Print("Enter password: ")
 	masterPassword, err := terminal.ReadPassword(int(syscall.Stdin))
 	fmt.Print("\n")
 	if err != nil {
-		return server.Credentials{}, err
+		return credentialsRequest{}, err
 	}
 
 	if signup {
@@ -124,18 +147,18 @@ func enterCredentials(signup bool) (server.Credentials, error) {
 		}
 
 		if string(retryPassword) != string(masterPassword) {
-			return server.Credentials{}, errors.New("entered passwords did not match")
+			return credentialsRequest{}, errors.New("entered passwords did not match")
 		}
 	}
 
-	return server.Credentials{
+	return credentialsRequest{
 		Username: username,
 		Password: string(masterPassword),
 	}, nil
 
 }
 
-func postSecrets(creds server.Credentials) (*http.Request, error) {
+func postSecrets(creds credentialsRequest) (*http.Request, error) {
 	secrets := make(map[string]string)
 	secrets["service1"] = "hunter2"
 	secrets["service2"] = "hunter3"
@@ -156,7 +179,7 @@ func postSecrets(creds server.Credentials) (*http.Request, error) {
 	return req, nil
 }
 
-func getSecrets(creds server.Credentials) (*http.Request, error) {
+func getSecrets(creds credentialsRequest) (*http.Request, error) {
 	mashalledCreds, err := json.Marshal(creds)
 	if err != nil {
 		return &http.Request{}, err
@@ -172,7 +195,7 @@ func getSecrets(creds server.Credentials) (*http.Request, error) {
 	return req, nil
 }
 
-func delAccount(creds server.Credentials) (*http.Request, error) {
+func delAccount(creds credentialsRequest) (*http.Request, error) {
 	mashalledCreds, err := json.Marshal(creds)
 	if err != nil {
 		return &http.Request{}, err
@@ -186,4 +209,31 @@ func delAccount(creds server.Credentials) (*http.Request, error) {
 	}
 
 	return req, nil
+}
+
+func decryptaesgcm(masterpass, ciphertext []byte) ([]byte, error) {
+	keyLength := 2 * aes.BlockSize
+	key := make([]byte, keyLength)
+
+	if len(masterpass) >= keyLength {
+		copy(key, masterpass[0:keyLength])
+	} else {
+		copy(key, masterpass)
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the nonce from the ciphertext
+	nonce := ciphertext[:12]
+
+	return aesgcm.Open(nil, nonce, ciphertext[12:], nil)
+
 }
