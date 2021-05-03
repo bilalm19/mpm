@@ -41,7 +41,7 @@ func storeCredentials(creds credentials) error {
 	binary.LittleEndian.PutUint32(salt, randNum)
 	key := argon2.IDKey([]byte(creds.Password), salt, 1, 64*1024, 4, 32)
 
-	os.MkdirAll("db", os.ModePerm)
+	createDataBaseDirectory()
 
 	storeUser, err := json.Marshal(credentialStorageStructure{
 		Username: creds.Username,
@@ -68,7 +68,6 @@ func verifyLogin(creds credentials, writer http.ResponseWriter) error {
 			writer.WriteHeader(http.StatusUnauthorized)
 			writer.Write([]byte("Authentication failed. Invalid username or password"))
 		default:
-			logger.Error(err)
 			writer.WriteHeader(http.StatusInternalServerError)
 			writer.Write([]byte("500 Server Error"))
 		}
@@ -86,8 +85,10 @@ func verifyLogin(creds credentials, writer http.ResponseWriter) error {
 }
 
 func loadCredentials(user string) (credentialStorageStructure, error) {
+	userDatabaseMutex.Lock()
 	file, err := os.Open("db/users")
 	if err != nil {
+		userDatabaseMutex.Unlock()
 		return credentialStorageStructure{}, err
 	}
 	defer file.Close()
@@ -99,6 +100,7 @@ func loadCredentials(user string) (credentialStorageStructure, error) {
 		if err != nil && err == io.EOF {
 			break
 		} else if err != nil {
+			userDatabaseMutex.Unlock()
 			return credentialStorageStructure{}, err
 		}
 
@@ -106,10 +108,12 @@ func loadCredentials(user string) (credentialStorageStructure, error) {
 		json.Unmarshal(line, &creds)
 
 		if creds.Username == user {
+			userDatabaseMutex.Unlock()
 			return creds, nil
 		}
 	}
 
+	userDatabaseMutex.Unlock()
 	return credentialStorageStructure{},
 		NewUserDoesNotExist(errors.New("user does not exist"))
 }
@@ -151,7 +155,7 @@ func storeUserSecrets(creds credentials) error {
 		}
 	}
 
-	os.MkdirAll("db", os.ModePerm)
+	createDataBaseDirectory()
 
 	mstoreSecrets, err := json.Marshal(secretStorage)
 	mstoreSecrets = append(mstoreSecrets, []byte("\n")...)
@@ -167,8 +171,10 @@ func storeUserSecrets(creds credentials) error {
 }
 
 func getUserSecrets(user string) (secretStorageStructure, error) {
+	secretDatabaseMutex.Lock()
 	file, err := os.Open("db/secrets")
 	if err != nil {
+		secretDatabaseMutex.Unlock()
 		return secretStorageStructure{}, err
 	}
 	defer file.Close()
@@ -179,6 +185,7 @@ func getUserSecrets(user string) (secretStorageStructure, error) {
 		if err != nil && err == io.EOF {
 			break
 		} else if err != nil {
+			secretDatabaseMutex.Unlock()
 			return secretStorageStructure{}, err
 		}
 
@@ -186,16 +193,19 @@ func getUserSecrets(user string) (secretStorageStructure, error) {
 		json.Unmarshal(line, &secrets)
 
 		if secrets.Username == user {
+			secretDatabaseMutex.Unlock()
 			return secrets, nil
 		}
 	}
 
+	secretDatabaseMutex.Unlock()
 	return secretStorageStructure{}, NewNoSecrets(errors.New("user has no secrets"))
 }
 
 func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 	var database []byte
 
+	secretDatabaseMutex.Lock()
 	file, err := os.Open("db/secrets")
 	if err != nil {
 		switch err.(type) {
@@ -203,6 +213,7 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 			database = data
 			hasSecrets = true
 		default:
+			secretDatabaseMutex.Unlock()
 			return err
 		}
 	} else {
@@ -214,6 +225,7 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 			if err != nil && err == io.EOF {
 				break
 			} else if err != nil {
+				secretDatabaseMutex.Unlock()
 				return err
 			}
 
@@ -232,6 +244,7 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 		database = append(database, data...)
 	}
 
+	secretDatabaseMutex.Unlock()
 	if err = writeToDatabase("db/secrets", database); err != nil {
 		return err
 	}
@@ -245,22 +258,42 @@ func writeToDatabase(filename string, data []byte) error {
 	var err error
 
 	if filename == "db/users" {
+		userDatabaseMutex.Lock()
 		f, err = os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	} else if filename == "db/secrets" {
+		secretDatabaseMutex.Lock()
 		f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	} else {
 		err = errors.New("unknown database")
 	}
 
 	if err != nil {
+		writeMutexFree(filename)
 		return err
 	}
 
 	defer f.Close()
 
 	if _, err = f.Write(data); err != nil {
+		writeMutexFree(filename)
 		return err
 	}
 
+	writeMutexFree(filename)
 	return nil
+}
+
+// Free the mutex before returning from writeToDatabase function
+func writeMutexFree(filename string) {
+	if filename == "db/users" {
+		userDatabaseMutex.Unlock()
+	} else if filename == "db/secrets" {
+		secretDatabaseMutex.Unlock()
+	}
+}
+
+func createDataBaseDirectory() {
+	dbDirectoryMutex.Lock()
+	os.MkdirAll("db", os.ModePerm)
+	dbDirectoryMutex.Unlock()
 }

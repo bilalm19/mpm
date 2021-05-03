@@ -6,8 +6,13 @@ import (
 	"mpm/logger"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
+
+var userDatabaseMutex = &sync.Mutex{}
+var secretDatabaseMutex = &sync.Mutex{}
+var dbDirectoryMutex = &sync.Mutex{}
 
 type MPMServer struct {
 	HTTPServer *http.Server
