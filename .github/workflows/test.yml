@@ -1,4 +1,4 @@
-name: Test
+name: Test Code
 on: 
   push:
     branches:
@@ -16,5 +16,8 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: test
+      - name: Build
+        run: make build
+
+      - name: Test
         run: make test
