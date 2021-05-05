@@ -31,8 +31,8 @@ func decodeClientMessage(body io.ReadCloser, writer http.ResponseWriter) (creden
 	err := decoder.Decode(&creds)
 	if err != nil {
 		logger.Error(err)
-		writer.WriteHeader(http.StatusInternalServerError)
-		writer.Write([]byte("500 Server Error"))
+		writer.WriteHeader(http.StatusBadRequest)
+		writer.Write([]byte("400 Bad Request"))
 		return creds, err
 	}
 

@@ -60,6 +60,11 @@ func (server *MPMServer) StartEdgeServer() error {
 }
 
 func registerNewUser(writer http.ResponseWriter, request *http.Request) {
+	if request.Body == nil {
+		respondClient(writer, http.StatusBadRequest, []byte("400 Bad Request"))
+		return
+	}
+
 	creds, err := decodeClientMessage(request.Body, writer)
 	if err != nil {
 		logger.Error(err)
@@ -86,6 +91,11 @@ func registerNewUser(writer http.ResponseWriter, request *http.Request) {
 }
 
 func serveClient(writer http.ResponseWriter, request *http.Request) {
+	if request.Body == nil {
+		respondClient(writer, http.StatusBadRequest, []byte("400 Bad Request"))
+		return
+	}
+
 	creds, err := decodeClientMessage(request.Body, writer)
 	if err != nil {
 		logger.Error(err)

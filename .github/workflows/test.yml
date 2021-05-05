@@ -1,0 +1,14 @@
+name: Test
+on: 
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: test code
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v1
+      - name: test
+    run: make test
