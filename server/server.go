@@ -14,6 +14,17 @@ var userDatabaseMutex = &sync.Mutex{}
 var secretDatabaseMutex = &sync.Mutex{}
 var dbDirectoryMutex = &sync.Mutex{}
 
+type userCache struct {
+	Users      map[string]uint8
+	cacheMutex sync.Mutex
+}
+
+// This cache keeps tracks of users whose account is in the process of being
+// created. The purpose is to prevent duplicated accounts being processed.
+var cache = userCache{
+	Users: make(map[string]uint8),
+}
+
 type MPMServer struct {
 	HTTPServer *http.Server
 }
@@ -71,20 +82,35 @@ func registerNewUser(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	// Check if another user with same account name is being created
+	cache.cacheMutex.Lock()
+	if _, ok := cache.Users[creds.Username]; !ok {
+		cache.Users[creds.Username] = 1
+	} else {
+		respondClient(writer, http.StatusBadRequest, []byte("Username is already in use"))
+		cache.cacheMutex.Unlock()
+		return
+	}
+	cache.cacheMutex.Unlock()
+
 	// Do not register user if username already exists.
 	_, err = loadCredentials(creds.Username)
 	if err != nil {
 		switch err.(type) {
 		case *UserDoesNotExist:
-			storeCredentials(creds)
 		case *os.PathError:
-			storeCredentials(creds)
 		default:
 			logger.Error(err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
 		}
+		storeCredentials(creds)
 		respondClient(writer, http.StatusOK, []byte("Account created"))
+
+		// Free up cache
+		cache.cacheMutex.Lock()
+		delete(cache.Users, creds.Username)
+		cache.cacheMutex.Unlock()
 	} else {
 		respondClient(writer, http.StatusBadRequest, []byte("Username is already in use"))
 	}

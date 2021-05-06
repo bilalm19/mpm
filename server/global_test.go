@@ -18,6 +18,10 @@ type DuplicateUser struct {
 	Err error
 }
 
+type MissedAccountCreation struct {
+	Err error
+}
+
 func (e *DuplicateUser) Error() string {
 	return e.Err.Error()
 }
@@ -26,9 +30,18 @@ func NewDuplicateUser(err error) error {
 	return &DuplicateUser{err}
 }
 
+func (e *MissedAccountCreation) Error() string {
+	return e.Err.Error()
+}
+
+func NewMissedAccountCreation(err error) error {
+	return &MissedAccountCreation{err}
+}
+
 func TestMPM(t *testing.T) {
 	var pass [10]chan bool
 	var users [10]credentials
+	userMap := make(map[string]string)
 
 	users[0].Username = "john"
 	users[0].Password = "123"
@@ -61,6 +74,7 @@ func TestMPM(t *testing.T) {
 	users[9].Password = "123"
 
 	for i := range pass {
+		userMap[users[i].Username] = users[i].Password
 		pass[i] = make(chan bool)
 		go requestAccountCreation(users[i].Username, users[i].Password, pass[i])
 
@@ -72,7 +86,7 @@ func TestMPM(t *testing.T) {
 		}
 	}
 
-	err := checkDatabase()
+	err := checkDatabase(len(userMap))
 	if err != nil {
 		switch err.(type) {
 		case *DuplicateUser:
@@ -109,14 +123,16 @@ func requestAccountCreation(user string, password string, pass chan bool) {
 	}
 
 	if string(respBody) != "Account created" && response.Code != http.StatusOK {
-		log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
-		pass <- false
+		if string(respBody) != "Username is already in use" && response.Code != http.StatusBadRequest {
+			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+			pass <- false
+		}
 	}
 
 	pass <- true
 }
 
-func checkDatabase() error {
+func checkDatabase(uniqueUserCount int) error {
 	file, err := os.Open("db/users")
 	if err != nil {
 		return err
@@ -141,6 +157,11 @@ func checkDatabase() error {
 			return NewDuplicateUser(errors.New("mishandled duplication"))
 		}
 		users[creds.Username] = string(creds.Password)
+	}
+
+	if uniqueUserCount != len(users) {
+		return NewMissedAccountCreation(errors.New(
+			"the number of accounts created are less than the unique requests"))
 	}
 
 	return nil
