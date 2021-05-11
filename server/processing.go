@@ -158,7 +158,6 @@ func storeUserSecrets(creds credentials) error {
 	}
 
 	createDataBaseDirectory()
-
 	mstoreSecrets, err := json.Marshal(secretStorage)
 	mstoreSecrets = append(mstoreSecrets, []byte("\n")...)
 	if err != nil {
@@ -340,8 +339,7 @@ func writeToDatabase(filename string, data []byte) error {
 		defer userDatabaseMutex.Unlock()
 		f, err = os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	} else if filename == "db/secrets" {
-		secretDatabaseMutex.Lock()
-		defer secretDatabaseMutex.Unlock()
+		// The parent function always locks the mutex for this
 		f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	} else if filename == "db/usersdel" {
 		userDatabaseMutex.Lock()

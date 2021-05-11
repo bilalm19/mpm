@@ -133,7 +133,8 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 			logger.Error(err)
 			return
 		}
-		if creds.SecretList == nil {
+
+		if creds.SecretList == nil || len(creds.SecretList) == 0 {
 			respondClient(writer, http.StatusBadRequest, []byte("No secrets were sent in request"))
 			return
 		}
