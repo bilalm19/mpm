@@ -148,7 +148,7 @@ func storeUserSecrets(creds credentials) error {
 			// Do not re-encrypt the values that have already been added to the
 			// database.
 			if _, ok := secretStorage.SecretList[k]; !ok {
-				ciphertext, err := encryptaesgcm([]byte(creds.Password), []byte(v))
+				ciphertext, err := encryptAESGCM([]byte(creds.Password), []byte(v))
 				if err != nil {
 					return err
 				}

@@ -84,7 +84,7 @@ func Login(rt uint8) error {
 			return err
 		}
 		for k, v := range secrets {
-			secrets[k], err = decryptaesgcm([]byte(creds.Password), v)
+			secrets[k], err = DecryptAESGCM([]byte(creds.Password), v)
 			if err != nil {
 				return err
 			}
@@ -214,7 +214,7 @@ func delAccount(creds credentialsRequest) (*http.Request, error) {
 	return req, nil
 }
 
-func decryptaesgcm(masterpass, ciphertext []byte) ([]byte, error) {
+func DecryptAESGCM(masterpass, ciphertext []byte) ([]byte, error) {
 	keyLength := 2 * aes.BlockSize
 	key := make([]byte, keyLength)
 

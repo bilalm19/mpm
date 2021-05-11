@@ -11,7 +11,7 @@ import (
 )
 
 // Encrypt the plaintext secret using AES-256 with GCM-96.
-func encryptaesgcm(masterpass, plaintext []byte) ([]byte, error) {
+func encryptAESGCM(masterpass, plaintext []byte) ([]byte, error) {
 	keyLength := 2 * aes.BlockSize
 
 	// The key length will be 32 bytes no matter what. If the length of the
@@ -68,7 +68,7 @@ func hexToBytes(h string) ([]byte, error) {
 func encryptMap(masterpass []byte, secretList map[string]string) (map[string][]byte, error) {
 	encryptedMap := make(map[string][]byte)
 	for k, v := range secretList {
-		cipher, err := encryptaesgcm(masterpass, []byte(v))
+		cipher, err := encryptAESGCM(masterpass, []byte(v))
 		if err != nil {
 			return encryptedMap, err
 		}

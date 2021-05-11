@@ -140,6 +140,16 @@ func TestMPM(t *testing.T) {
 			t.Errorf("Add secret request number %d failed", i)
 		}
 	}
+
+	for i := range pass {
+		go requestGetSecrets(users[i], pass[i])
+	}
+
+	for i := range pass {
+		if !<-pass[i] {
+			t.Errorf("Add secret request number %d failed", i)
+		}
+	}
 }
 
 func requestAccountCreation(creds credentials, pass chan bool) {
@@ -222,12 +232,22 @@ func requestAddSecrets(userReq credentials, pass chan bool) {
 }
 
 func requestGetSecrets(userReq credentials, pass chan bool) {
-	_, _, err := prepareRequest(userReq, http.MethodGet)
+	response, request, err := prepareRequest(userReq, http.MethodGet)
 	if err != nil {
 		log.Println(err)
 		pass <- false
 		return
 	}
+
+	serveClient(response, request)
+	respBody, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Println(err)
+		pass <- false
+	}
+
+	log.Println(respBody)
+
 	pass <- true
 }
 

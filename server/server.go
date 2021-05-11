@@ -189,6 +189,5 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		respondClient(writer, http.StatusOK, []byte("Your account has been deleted."))
 	} else {
 		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
-
 	}
 }
