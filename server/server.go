@@ -45,7 +45,6 @@ type credentials struct {
 type credentialStorageStructure struct {
 	Username string
 	Password []byte
-	Salt     []byte
 }
 
 // secretStorageStructure is the data structure used for storing the secrets in

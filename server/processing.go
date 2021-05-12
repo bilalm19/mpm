@@ -49,8 +49,7 @@ func storeCredentials(creds credentials) error {
 
 	storeUser, err := json.Marshal(credentialStorageStructure{
 		Username: creds.Username,
-		Password: key,
-		Salt:     salt,
+		Password: append(salt, key...),
 	})
 	storeUser = append(storeUser, []byte("\n")...)
 	if err != nil {
@@ -78,8 +77,8 @@ func verifyLogin(creds credentials, writer http.ResponseWriter) error {
 		return err
 	}
 
-	key := argon2.IDKey([]byte(creds.Password), storedCreds.Salt, 1, 64*1024, 4, 32)
-	if !reflect.DeepEqual(key, storedCreds.Password) {
+	key := argon2.IDKey([]byte(creds.Password), storedCreds.Password[0:4], 1, 64*1024, 4, 32)
+	if !reflect.DeepEqual(key, storedCreds.Password[4:]) {
 		writer.WriteHeader(http.StatusUnauthorized)
 		writer.Write([]byte("Authentication failed. Invalid username or password"))
 		return NewAuthenticationFailed(errors.New("password does not match"))
