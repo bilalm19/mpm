@@ -191,8 +191,10 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 
 		marshalledSecrets, err := json.Marshal(secrets.SecretList)
 		if err != nil {
+			freeLoginCache(creds.Username)
 			logger.Error(err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
+			return
 		}
 
 		respondClient(writer, http.StatusOK, marshalledSecrets)

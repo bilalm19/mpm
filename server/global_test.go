@@ -78,16 +78,11 @@ func NewSecretDatabaseNotEmpty(err error) error {
 	return &SecretDatabaseNotEmpty{err}
 }
 
-func TestMPM(t *testing.T) {
+func TestSimpleAccountCreation(t *testing.T) {
 	var pass [10]chan bool
-	var getpass [10]chan bool
-	var delpass [10]chan bool
-	hasFailed := false
-
 	users := prepareUsers()
 	userMap := make(map[string]string)
 
-	// Systematic testing
 	for i := range pass {
 		userMap[users[i].Username] = users[i].Password
 		pass[i] = make(chan bool)
@@ -97,12 +92,7 @@ func TestMPM(t *testing.T) {
 	for i := range pass {
 		if !<-pass[i] {
 			t.Errorf("Account creation request number %d failed", i)
-			hasFailed = true
 		}
-	}
-
-	if hasFailed {
-		return
 	}
 
 	err := checkDatabase(len(userMap))
@@ -110,63 +100,69 @@ func TestMPM(t *testing.T) {
 		switch err.(type) {
 		case *DuplicateUser:
 			t.Error(err)
-			hasFailed = true
 		default:
 			t.Fatal(err)
 		}
 	}
+}
 
-	if hasFailed {
-		return
-	}
+func TestSimpleAddSecrets(t *testing.T) {
+	var pass [10]chan bool
+	users := prepareUsers()
 
 	for i := range pass {
+		pass[i] = make(chan bool)
 		go requestAddSecrets(users[i], pass[i])
 	}
 
 	for i := range pass {
 		if !<-pass[i] {
 			t.Errorf("Add secret request number %d failed", i)
-			hasFailed = true
 		}
 	}
+}
 
-	if hasFailed {
-		return
-	}
+func TestSimpleGetSecrets(t *testing.T) {
+	var pass [10]chan bool
+	users := prepareUsers()
 
 	for i := range pass {
+		pass[i] = make(chan bool)
 		go requestGetSecrets(users[i], pass[i])
 	}
 
 	for i := range pass {
 		if !<-pass[i] {
 			t.Errorf("Get secret request number %d failed", i)
-			hasFailed = true
 		}
 	}
+}
 
-	if hasFailed {
-		return
-	}
+func TestSimpleDeleteAccount(t *testing.T) {
+	var pass [10]chan bool
+	users := prepareUsers()
 
 	for i := range pass {
+		pass[i] = make(chan bool)
 		go requestDeleteAccount(users[i], pass[i])
 	}
 
 	for i := range pass {
 		if !<-pass[i] {
 			t.Errorf("Delete account request number %d failed", i)
-			hasFailed = true
 		}
 	}
+}
 
-	if hasFailed {
-		return
-	}
+func TestChaoticRequests(t *testing.T) {
+	var pass [10]chan bool
+	var getpass [10]chan bool
+	var delpass [10]chan bool
 
-	// Adding some chaos to testing
+	users := prepareUsers()
+
 	for i := range pass {
+		pass[i] = make(chan bool)
 		getpass[i] = make(chan bool)
 		delpass[i] = make(chan bool)
 		go requestAccountCreation(users[i], pass[i])
@@ -175,12 +171,7 @@ func TestMPM(t *testing.T) {
 	for i := range pass {
 		if !<-pass[i] {
 			t.Errorf("Account creation request number %d failed", i)
-			hasFailed = true
 		}
-	}
-
-	if hasFailed {
-		return
 	}
 
 	for i := range pass {
