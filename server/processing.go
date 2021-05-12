@@ -342,8 +342,7 @@ func writeToDatabase(filename string, data []byte) error {
 		// The parent function always locks the mutex for this
 		f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	} else if filename == "db/usersdel" {
-		userDatabaseMutex.Lock()
-		defer userDatabaseMutex.Unlock()
+		// The parent function always locks the mutex for this
 		f, err = os.OpenFile("db/users", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	} else {
 		err = errors.New("unknown database")

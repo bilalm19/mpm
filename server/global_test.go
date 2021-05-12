@@ -151,6 +151,16 @@ func TestMPM(t *testing.T) {
 			t.Errorf("Add secret request number %d failed", i)
 		}
 	}
+
+	for i := range pass {
+		go requestDeleteAccount(users[i], pass[i])
+	}
+
+	for i := range pass {
+		if !<-pass[i] {
+			t.Errorf("Add secret request number %d failed", i)
+		}
+	}
 }
 
 func requestAccountCreation(creds credentials, pass chan bool) {
@@ -286,6 +296,26 @@ func requestGetSecrets(userReq credentials, pass chan bool) {
 		}
 	}
 
+	pass <- true
+}
+
+func requestDeleteAccount(userReq credentials, pass chan bool) {
+	response, request, err := prepareRequest(userReq, http.MethodDelete)
+	if err != nil {
+		log.Println(err)
+		pass <- false
+		return
+	}
+
+	serveClient(response, request)
+	respBody, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Println(err)
+		pass <- false
+		return
+	}
+
+	log.Println(string(respBody))
 	pass <- true
 }
 
