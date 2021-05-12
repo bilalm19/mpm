@@ -17,12 +17,17 @@ var dbDirectoryMutex = &sync.Mutex{}
 type userCache struct {
 	Users      map[string]uint8
 	cacheMutex sync.Mutex
+	Login      map[string]uint8 // cache for login endpoint
+	LoginMutex sync.Mutex
 }
 
 // This cache keeps tracks of users whose account is in the process of being
-// created. The purpose is to prevent duplicated accounts being processed.
+// created, or the user's request is being processed. In the case of handling
+// account creation, this prevents creation of duplicate accounts. For the case
+// of login request, it prevents conflicts of service.
 var cache = userCache{
 	Users: make(map[string]uint8),
+	Login: make(map[string]uint8),
 }
 
 type MPMServer struct {
@@ -101,17 +106,16 @@ func registerNewUser(writer http.ResponseWriter, request *http.Request) {
 		case *os.PathError:
 		default:
 			logger.Error(err)
+			freeUserCache(creds.Username)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
 		}
 		storeCredentials(creds)
 		respondClient(writer, http.StatusOK, []byte("Account created"))
 
-		// Free up cache
-		cache.cacheMutex.Lock()
-		delete(cache.Users, creds.Username)
-		cache.cacheMutex.Unlock()
+		freeUserCache(creds.Username)
 	} else {
+		freeUserCache(creds.Username)
 		respondClient(writer, http.StatusBadRequest, []byte("Username is already in use"))
 	}
 }
@@ -128,18 +132,36 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	i := 1
+	for {
+		cache.LoginMutex.Lock()
+		if _, ok := cache.Login[creds.Username]; !ok {
+			cache.Login[creds.Username] = 1
+			cache.LoginMutex.Unlock()
+			break
+		}
+		cache.LoginMutex.Unlock()
+		time.Sleep(time.Duration(i) * 200000000)
+		if i <= 5 {
+			i++
+		}
+	}
+
 	if request.Method == http.MethodPost {
 		if err = verifyLogin(creds, writer); err != nil {
+			freeLoginCache(creds.Username)
 			logger.Error(err)
 			return
 		}
 
 		if creds.SecretList == nil || len(creds.SecretList) == 0 {
+			freeLoginCache(creds.Username)
 			respondClient(writer, http.StatusBadRequest, []byte("No secrets were sent in request"))
 			return
 		}
 
 		if err = storeUserSecrets(creds); err != nil {
+			freeLoginCache(creds.Username)
 			logger.Error(err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
@@ -148,6 +170,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		respondClient(writer, http.StatusOK, []byte("Secrets added"))
 	} else if request.Method == http.MethodGet {
 		if err = verifyLogin(creds, writer); err != nil {
+			freeLoginCache(creds.Username)
 			logger.Error(err)
 			return
 		}
@@ -162,6 +185,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 				logger.Error(err)
 				respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			}
+			freeLoginCache(creds.Username)
 			return
 		}
 
@@ -175,12 +199,14 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 
 	} else if request.Method == http.MethodDelete {
 		if err = verifyLogin(creds, writer); err != nil {
+			freeLoginCache(creds.Username)
 			logger.Error(err)
 			return
 		}
 
 		err = deleteAccount(creds.Username)
 		if err != nil {
+			freeLoginCache(creds.Username)
 			logger.Error(err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
@@ -190,4 +216,19 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 	} else {
 		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
 	}
+	freeLoginCache(creds.Username)
+}
+
+// Free up cache
+func freeUserCache(user string) {
+	cache.cacheMutex.Lock()
+	delete(cache.Users, user)
+	cache.cacheMutex.Unlock()
+}
+
+// Free up cache
+func freeLoginCache(user string) {
+	cache.LoginMutex.Lock()
+	delete(cache.Login, user)
+	cache.LoginMutex.Unlock()
 }

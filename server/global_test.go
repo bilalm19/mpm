@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -39,6 +38,14 @@ type MissedAccountCreation struct {
 	Err error
 }
 
+type UserDatabaseNotEmpty struct {
+	Err error
+}
+
+type SecretDatabaseNotEmpty struct {
+	Err error
+}
+
 func (e *DuplicateUser) Error() string {
 	return e.Err.Error()
 }
@@ -55,61 +62,32 @@ func NewMissedAccountCreation(err error) error {
 	return &MissedAccountCreation{err}
 }
 
+func (e *UserDatabaseNotEmpty) Error() string {
+	return e.Err.Error()
+}
+
+func NewUserDatabaseNotEmpty(err error) error {
+	return &UserDatabaseNotEmpty{err}
+}
+
+func (e *SecretDatabaseNotEmpty) Error() string {
+	return e.Err.Error()
+}
+
+func NewSecretDatabaseNotEmpty(err error) error {
+	return &SecretDatabaseNotEmpty{err}
+}
+
 func TestMPM(t *testing.T) {
 	var pass [10]chan bool
-	var users [10]credentials
+	var getpass [10]chan bool
+	var delpass [10]chan bool
+	hasFailed := false
+
+	users := prepareUsers()
 	userMap := make(map[string]string)
-	for i := range users {
-		users[i].SecretList = make(map[string]string)
-	}
 
-	users[0].Username = "john"
-	users[0].Password = "123"
-	users[0].SecretList["service1"] = "890"
-	users[0].SecretList["service2"] = "890"
-
-	users[1].Username = "john"
-	users[1].Password = "123"
-	users[1].SecretList["service6"] = "900"
-	users[1].SecretList["service8"] = "790"
-
-	users[2].Username = "jane"
-	users[2].Password = "123"
-	users[2].SecretList["service1"] = "1200"
-
-	users[3].Username = "jane"
-	users[3].Password = "1235"
-	users[3].SecretList["service1"] = "001"
-	users[3].SecretList["service3"] = "00"
-
-	users[4].Username = "john"
-	users[4].Password = "1238"
-	users[4].SecretList["service1"] = "password"
-	users[4].SecretList["service2"] = "password"
-
-	users[5].Username = "bob"
-	users[5].Password = "123"
-	users[5].SecretList["service6"] = "password"
-
-	users[6].Username = "set"
-	users[6].Password = "123"
-	users[6].SecretList["service1"] = "12345678"
-	users[6].SecretList["service2"] = "123456789"
-	users[6].SecretList["service3"] = "password1"
-	users[6].SecretList["service4"] = "hunter2"
-
-	users[7].Username = "bat"
-	users[7].Password = "123"
-	users[7].SecretList["service1"] = "12345678"
-
-	users[8].Username = "nat"
-	users[8].Password = "12345678"
-
-	users[9].Username = "lat"
-	users[9].Password = "password"
-	users[9].SecretList["service5"] = "12345678"
-	users[9].SecretList["service7"] = "87654321"
-
+	// Systematic testing
 	for i := range pass {
 		userMap[users[i].Username] = users[i].Password
 		pass[i] = make(chan bool)
@@ -119,7 +97,12 @@ func TestMPM(t *testing.T) {
 	for i := range pass {
 		if !<-pass[i] {
 			t.Errorf("Account creation request number %d failed", i)
+			hasFailed = true
 		}
+	}
+
+	if hasFailed {
+		return
 	}
 
 	err := checkDatabase(len(userMap))
@@ -127,9 +110,14 @@ func TestMPM(t *testing.T) {
 		switch err.(type) {
 		case *DuplicateUser:
 			t.Error(err)
+			hasFailed = true
 		default:
 			t.Fatal(err)
 		}
+	}
+
+	if hasFailed {
+		return
 	}
 
 	for i := range pass {
@@ -139,7 +127,12 @@ func TestMPM(t *testing.T) {
 	for i := range pass {
 		if !<-pass[i] {
 			t.Errorf("Add secret request number %d failed", i)
+			hasFailed = true
 		}
+	}
+
+	if hasFailed {
+		return
 	}
 
 	for i := range pass {
@@ -148,8 +141,13 @@ func TestMPM(t *testing.T) {
 
 	for i := range pass {
 		if !<-pass[i] {
-			t.Errorf("Add secret request number %d failed", i)
+			t.Errorf("Get secret request number %d failed", i)
+			hasFailed = true
 		}
+	}
+
+	if hasFailed {
+		return
 	}
 
 	for i := range pass {
@@ -158,7 +156,61 @@ func TestMPM(t *testing.T) {
 
 	for i := range pass {
 		if !<-pass[i] {
-			t.Errorf("Add secret request number %d failed", i)
+			t.Errorf("Delete account request number %d failed", i)
+			hasFailed = true
+		}
+	}
+
+	if hasFailed {
+		return
+	}
+
+	// Adding some chaos to testing
+	for i := range pass {
+		getpass[i] = make(chan bool)
+		delpass[i] = make(chan bool)
+		go requestAccountCreation(users[i], pass[i])
+	}
+
+	for i := range pass {
+		if !<-pass[i] {
+			t.Errorf("Account creation request number %d failed", i)
+			hasFailed = true
+		}
+	}
+
+	if hasFailed {
+		return
+	}
+
+	for i := range pass {
+		go requestAddSecrets(users[i], pass[i])
+		go requestGetSecrets(users[i], getpass[i])
+		go requestDeleteAccount(users[i], delpass[i])
+	}
+
+	for i := range pass {
+		if !<-pass[i] {
+			t.Logf("Add secret request number %d failed", i)
+		}
+
+		if !<-getpass[i] {
+			t.Logf("Get secret request number %d failed", i)
+		}
+
+		if !<-delpass[i] {
+			t.Logf("Delete account request number %d failed", i)
+		}
+	}
+
+	if err := checkDatabasesEmpty(); err != nil {
+		switch err.(type) {
+		case *UserDatabaseNotEmpty:
+			t.Error(err)
+		case *SecretDatabaseNotEmpty:
+			t.Error(err)
+		default:
+			t.Fatal(err)
 		}
 	}
 }
@@ -315,7 +367,24 @@ func requestDeleteAccount(userReq credentials, pass chan bool) {
 		return
 	}
 
-	log.Println(string(respBody))
+	if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
+		if string(respBody) != "Authentication failed. Invalid username or password" &&
+			response.Code != http.StatusUnauthorized {
+			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+			pass <- false
+		}
+	} else {
+		if string(respBody) != "Your account has been deleted." && response.Code != http.StatusOK {
+			if userReq.Username == "john" && string(respBody) == "Authentication failed. Invalid username or password" &&
+				response.Code == http.StatusUnauthorized {
+				pass <- true
+				return
+			} else {
+				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+				pass <- false
+			}
+		}
+	}
 	pass <- true
 }
 
@@ -341,19 +410,16 @@ func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder
 		return false
 	}
 
-	// Since global variable is only going to be accessed for reading at this
-	// point, there should be no issues with data races. Hence, no mutex lock.
-	if reflect.DeepEqual(globalUserTracker.UserMap[userReq.Username], userReq) {
-		if globalUserTracker.UserMap[userReq.Username].SecretList == nil ||
-			len(globalUserTracker.UserMap[userReq.Username].SecretList) == 0 {
+	if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
 
-			if string(respBody) != "No secrets were sent in request" && response.Code != http.StatusBadRequest {
-				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
-				return false
-			}
-
+		if string(respBody) != "No secrets were sent in request" && response.Code != http.StatusBadRequest {
+			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+			return false
 		}
+
 	} else {
+		// Since global variable is only going to be accessed for reading at this
+		// point, there should be no issues with data races. Hence, no mutex lock.
 		if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
 			if string(respBody) != "Authentication failed. Invalid username or password" &&
 				response.Code != http.StatusUnauthorized {
@@ -371,8 +437,92 @@ func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder
 	return true
 }
 
-/*
- @TODO: Concurrent requests for adding accounts, deletion, getting secrets
- and adding secrets. Handle duplication and wrong addition/deletion.
- Possibly need queue?
-*/
+func prepareUsers() (users [10]credentials) {
+	for i := range users {
+		users[i].SecretList = make(map[string]string)
+	}
+
+	users[0].Username = "john"
+	users[0].Password = "123"
+	users[0].SecretList["service1"] = "890"
+	users[0].SecretList["service2"] = "890"
+
+	users[1].Username = "john"
+	users[1].Password = "123"
+	users[1].SecretList["service6"] = "900"
+	users[1].SecretList["service8"] = "790"
+
+	users[2].Username = "jane"
+	users[2].Password = "123"
+	users[2].SecretList["service1"] = "1200"
+
+	users[3].Username = "jane"
+	users[3].Password = "1235"
+	users[3].SecretList["service1"] = "001"
+	users[3].SecretList["service3"] = "00"
+
+	users[4].Username = "john"
+	users[4].Password = "1238"
+	users[4].SecretList["service1"] = "password"
+	users[4].SecretList["service2"] = "password"
+
+	users[5].Username = "bob"
+	users[5].Password = "123"
+	users[5].SecretList["service6"] = "password"
+
+	users[6].Username = "set"
+	users[6].Password = "123"
+	users[6].SecretList["service1"] = "12345678"
+	users[6].SecretList["service2"] = "123456789"
+	users[6].SecretList["service3"] = "password1"
+	users[6].SecretList["service4"] = "hunter2"
+
+	users[7].Username = "bat"
+	users[7].Password = "123"
+	users[7].SecretList["service1"] = "12345678"
+
+	users[8].Username = "nat"
+	users[8].Password = "12345678"
+
+	users[9].Username = "lat"
+	users[9].Password = "password"
+	users[9].SecretList["service5"] = "12345678"
+	users[9].SecretList["service7"] = "87654321"
+
+	return
+}
+
+func checkDatabasesEmpty() error {
+	if err := checkDBEmpty("db/users"); err != nil {
+		return err
+	}
+
+	if err := checkDBEmpty("db/secrets"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func checkDBEmpty(dbname string) error {
+	file, err := os.Open(dbname)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	fs, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	if fs.Size() != 0 {
+		if dbname == "db/users" {
+			return NewUserDatabaseNotEmpty(errors.New("user database is not empty"))
+		} else {
+			return NewSecretDatabaseNotEmpty(errors.New("secret database is not empty"))
+		}
+	}
+
+	return nil
+}
