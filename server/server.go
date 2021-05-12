@@ -44,7 +44,7 @@ type credentials struct {
 // the file database.
 type credentialStorageStructure struct {
 	Username string
-	Password []byte
+	Password []byte // The first 4 bytes will be the salt
 }
 
 // secretStorageStructure is the data structure used for storing the secrets in
