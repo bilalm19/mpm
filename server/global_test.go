@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"mpm/client"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -244,9 +245,46 @@ func requestGetSecrets(userReq credentials, pass chan bool) {
 	if err != nil {
 		log.Println(err)
 		pass <- false
+		return
 	}
 
-	log.Println(respBody)
+	if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
+		if response.Code != http.StatusNoContent {
+			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+			pass <- false
+			return
+		}
+	} else if _, ok := globalUserTracker.UserMap[userReq.Username]; ok {
+		if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
+			if response.Code != http.StatusUnauthorized {
+				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+				pass <- false
+				return
+			}
+		} else {
+			secrets := make(map[string][]byte)
+			if err = json.Unmarshal(respBody, &secrets); err != nil {
+				log.Println(err)
+				pass <- false
+				return
+			}
+
+			for k, v := range secrets {
+				secrets[k], err = client.DecryptAESGCM([]byte(userReq.Password), v)
+				if err != nil {
+					log.Println(err)
+					pass <- false
+					return
+				}
+				if globalUserTracker.UserMap[userReq.Username].SecretList[k] != string(secrets[k]) {
+					if userReq.Username != "john" || userReq.Password != "123" {
+						pass <- false
+						return
+					}
+				}
+			}
+		}
+	}
 
 	pass <- true
 }
