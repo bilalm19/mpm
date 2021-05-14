@@ -112,7 +112,7 @@ func TestSimpleAddSecrets(t *testing.T) {
 
 	for i := range pass {
 		pass[i] = make(chan bool)
-		go requestAddSecrets(users[i], pass[i])
+		go requestAddSecrets(users[i], pass[i], false)
 	}
 
 	for i := range pass {
@@ -128,7 +128,7 @@ func TestSimpleGetSecrets(t *testing.T) {
 
 	for i := range pass {
 		pass[i] = make(chan bool)
-		go requestGetSecrets(users[i], pass[i])
+		go requestGetSecrets(users[i], pass[i], false)
 	}
 
 	for i := range pass {
@@ -175,22 +175,22 @@ func TestChaoticRequests(t *testing.T) {
 	}
 
 	for i := range pass {
-		go requestAddSecrets(users[i], pass[i])
-		go requestGetSecrets(users[i], getpass[i])
+		go requestAddSecrets(users[i], pass[i], true)
+		go requestGetSecrets(users[i], getpass[i], true)
 		go requestDeleteAccount(users[i], delpass[i])
 	}
 
 	for i := range pass {
 		if !<-pass[i] {
-			t.Logf("Add secret request number %d failed", i)
+			t.Errorf("Add secret request number %d failed", i)
 		}
 
 		if !<-getpass[i] {
-			t.Logf("Get secret request number %d failed", i)
+			t.Errorf("Get secret request number %d failed", i)
 		}
 
 		if !<-delpass[i] {
-			t.Logf("Delete account request number %d failed", i)
+			t.Errorf("Delete account request number %d failed", i)
 		}
 	}
 
@@ -272,7 +272,7 @@ func checkDatabase(uniqueUserCount int) error {
 	return nil
 }
 
-func requestAddSecrets(userReq credentials, pass chan bool) {
+func requestAddSecrets(userReq credentials, pass chan bool, chaos bool) {
 	response, request, err := prepareRequest(userReq, http.MethodPost)
 	if err != nil {
 		log.Println(err)
@@ -282,10 +282,10 @@ func requestAddSecrets(userReq credentials, pass chan bool) {
 
 	serveClient(response, request)
 
-	pass <- checkLoginResponse(userReq, response)
+	pass <- checkLoginResponse(userReq, response, chaos)
 }
 
-func requestGetSecrets(userReq credentials, pass chan bool) {
+func requestGetSecrets(userReq credentials, pass chan bool, chaos bool) {
 	response, request, err := prepareRequest(userReq, http.MethodGet)
 	if err != nil {
 		log.Println(err)
@@ -315,6 +315,13 @@ func requestGetSecrets(userReq credentials, pass chan bool) {
 				return
 			}
 		} else {
+			if chaos && ((response.Code == http.StatusUnauthorized &&
+				string(respBody) == "Authentication failed. Invalid username or password") ||
+				response.Code == http.StatusNoContent) {
+				pass <- true
+				return
+			}
+
 			secrets := make(map[string][]byte)
 			if err = json.Unmarshal(respBody, &secrets); err != nil {
 				log.Println(err)
@@ -394,7 +401,7 @@ func prepareRequest(creds credentials, method string) (*httptest.ResponseRecorde
 	return response, request, nil
 }
 
-func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder) bool {
+func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder, chaos bool) bool {
 	respBody, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Println(err)
@@ -418,6 +425,11 @@ func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder
 				return false
 			}
 		} else {
+			if chaos && response.Code == http.StatusUnauthorized &&
+				string(respBody) == "Authentication failed. Invalid username or password" {
+				return true
+			}
+
 			if string(respBody) != "Secrets added" && response.Code != http.StatusOK {
 				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 				return false
