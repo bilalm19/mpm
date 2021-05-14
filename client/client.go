@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"mpm/logger"
+	"mpm/logging"
 	"net/http"
 	"os"
 	"strings"
@@ -71,10 +71,10 @@ func Login(rt uint8) error {
 	}
 
 	if resp.StatusCode == http.StatusNoContent {
-		logger.Warning("You do not have any secrets stored")
+		logging.MPMLogger.Warn("You do not have any secrets stored")
 		return nil
 	} else if resp.StatusCode != http.StatusOK {
-		logger.Error("Server responded with " + string(body))
+		logging.MPMLogger.Error("Server responded with " + string(body))
 		return nil
 	}
 
@@ -91,7 +91,7 @@ func Login(rt uint8) error {
 			log.Printf("%s: %s\n", k, secrets[k])
 		}
 	} else {
-		logger.Info("Server responded with " + string(body))
+		logging.MPMLogger.Info("Server responded with " + string(body))
 	}
 
 	return nil
@@ -117,9 +117,9 @@ func SignUp() error {
 	}
 
 	if resp.StatusCode == http.StatusOK {
-		logger.Info("Server responded with " + string(body))
+		logging.MPMLogger.Info("Server responded with " + string(body))
 	} else {
-		logger.Error("Server responded with " + string(body))
+		logging.MPMLogger.Error("Server responded with " + string(body))
 	}
 	return nil
 }
@@ -146,7 +146,7 @@ func enterCredentials(signup bool) (credentialsRequest, error) {
 		retryPassword, err := terminal.ReadPassword(int(syscall.Stdin))
 		fmt.Print("\n")
 		if err != nil {
-			logger.Fatal(err)
+			logging.MPMLogger.Fatal(err)
 		}
 
 		if string(retryPassword) != string(masterPassword) {

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"io"
 	"math/rand"
-	"mpm/logger"
+	"mpm/logging"
 	"net/http"
 	"os"
 	"reflect"
@@ -20,7 +20,7 @@ func respondClient(writer http.ResponseWriter, code int, resp []byte) {
 	writer.WriteHeader(code)
 	if code != http.StatusNoContent {
 		if _, err := writer.Write(resp); err != nil {
-			logger.Error(err)
+			logging.MPMLogger.Error(err)
 		}
 	}
 }
@@ -30,7 +30,7 @@ func decodeClientMessage(body io.ReadCloser, writer http.ResponseWriter) (creden
 	var creds credentials
 	err := decoder.Decode(&creds)
 	if err != nil {
-		logger.Error(err)
+		logging.MPMLogger.Error(err)
 		writer.WriteHeader(http.StatusBadRequest)
 		writer.Write([]byte("400 Bad Request"))
 		return creds, err
@@ -40,6 +40,7 @@ func decodeClientMessage(body io.ReadCloser, writer http.ResponseWriter) (creden
 }
 
 func storeCredentials(creds credentials) error {
+	logging.MPMLogger.Infof("Registering user %s\n", creds.Username)
 	randNum := rand.Uint32()
 	salt := make([]byte, 4)
 	binary.LittleEndian.PutUint32(salt, randNum)
@@ -51,12 +52,17 @@ func storeCredentials(creds credentials) error {
 		Username: creds.Username,
 		Password: append(salt, key...),
 	})
-	storeUser = append(storeUser, []byte("\n")...)
 	if err != nil {
+		logging.MPMLogger.Errorf("Failed to create user %s. Reason: %v\n",
+			creds.Username, err)
 		return err
 	}
 
+	storeUser = append(storeUser, []byte("\n")...)
+
 	if err = writeToDatabase("db/users", storeUser); err != nil {
+		logging.MPMLogger.Errorf("Failed to create user %s. Reason: %v",
+			creds.Username, err)
 		return err
 	}
 

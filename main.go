@@ -1,11 +1,8 @@
 package main
 
-import (
-	"mpm/server"
-)
+import "mpm/server"
 
 func main() {
-
 	mpmServer := server.New()
 	// go mpmServer.StartEdgeServer()
 

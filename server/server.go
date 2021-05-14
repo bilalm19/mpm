@@ -3,7 +3,7 @@ package server
 import (
 	"encoding/json"
 	"math/rand"
-	"mpm/logger"
+	"mpm/logging"
 	"net/http"
 	"os"
 	"sync"
@@ -66,6 +66,7 @@ func New() MPMServer {
 
 // StartEdgeServer starts the server that listens for edge devices.
 func (server *MPMServer) StartEdgeServer() error {
+	logging.MPMLogger.Debug("Initializing server")
 	// Initialize seed
 	rand.Seed(time.Now().UnixNano())
 
@@ -82,7 +83,7 @@ func registerNewUser(writer http.ResponseWriter, request *http.Request) {
 
 	creds, err := decodeClientMessage(request.Body, writer)
 	if err != nil {
-		logger.Error(err)
+		logging.MPMLogger.Error(err)
 		return
 	}
 
@@ -90,6 +91,7 @@ func registerNewUser(writer http.ResponseWriter, request *http.Request) {
 	cache.cacheMutex.Lock()
 	if _, ok := cache.Users[creds.Username]; !ok {
 		cache.Users[creds.Username] = 1
+		logging.MPMLogger.Debugf("Added %s to UserCache\n", creds.Username)
 	} else {
 		respondClient(writer, http.StatusBadRequest, []byte("Username is already in use"))
 		cache.cacheMutex.Unlock()
@@ -104,13 +106,17 @@ func registerNewUser(writer http.ResponseWriter, request *http.Request) {
 		case *UserDoesNotExist:
 		case *os.PathError:
 		default:
-			logger.Error(err)
+			logging.MPMLogger.Error(err)
 			freeUserCache(creds.Username)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
 		}
-		storeCredentials(creds)
-		respondClient(writer, http.StatusOK, []byte("Account created"))
+		err = storeCredentials(creds)
+		if err == nil {
+			respondClient(writer, http.StatusOK, []byte("Account created"))
+		} else {
+			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
+		}
 
 		freeUserCache(creds.Username)
 	} else {
@@ -127,19 +133,22 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 
 	creds, err := decodeClientMessage(request.Body, writer)
 	if err != nil {
-		logger.Error(err)
+		logging.MPMLogger.Error(err)
 		return
 	}
 
 	i := 1
 	for {
 		cache.LoginMutex.Lock()
+		logging.MPMLogger.Debugf("Attempting to add user %s to LoginCache\n", creds.Username)
 		if _, ok := cache.Login[creds.Username]; !ok {
 			cache.Login[creds.Username] = 1
 			cache.LoginMutex.Unlock()
+			logging.MPMLogger.Debugf("Successfully added user %s to LoginCache\n", creds.Username)
 			break
 		}
 		cache.LoginMutex.Unlock()
+		logging.MPMLogger.Debugf("Unable to add user %s to LoginCache\n", creds.Username)
 		time.Sleep(time.Duration(i) * 200000000)
 		if i <= 5 {
 			i++
@@ -149,7 +158,8 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 	if request.Method == http.MethodPost {
 		if err = verifyLogin(creds, writer); err != nil {
 			freeLoginCache(creds.Username)
-			logger.Error(err)
+			logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
+				creds.Username, err)
 			return
 		}
 
@@ -161,7 +171,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 
 		if err = storeUserSecrets(creds); err != nil {
 			freeLoginCache(creds.Username)
-			logger.Error(err)
+			logging.MPMLogger.Error(err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
 		}
@@ -170,7 +180,8 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 	} else if request.Method == http.MethodGet {
 		if err = verifyLogin(creds, writer); err != nil {
 			freeLoginCache(creds.Username)
-			logger.Error(err)
+			logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
+				creds.Username, err)
 			return
 		}
 		secrets, err := getUserSecrets(creds.Username)
@@ -181,7 +192,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 			case *NoSecrets:
 				respondClient(writer, http.StatusNoContent, []byte(""))
 			default:
-				logger.Error(err)
+				logging.MPMLogger.Error(err)
 				respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			}
 			freeLoginCache(creds.Username)
@@ -191,7 +202,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		marshalledSecrets, err := json.Marshal(secrets.SecretList)
 		if err != nil {
 			freeLoginCache(creds.Username)
-			logger.Error(err)
+			logging.MPMLogger.Error(err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
 		}
@@ -201,20 +212,24 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 	} else if request.Method == http.MethodDelete {
 		if err = verifyLogin(creds, writer); err != nil {
 			freeLoginCache(creds.Username)
-			logger.Error(err)
+			logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
+				creds.Username, err)
 			return
 		}
 
+		logging.MPMLogger.Infof("Deleting user %s\n", creds.Username)
 		err = deleteAccount(creds.Username)
 		if err != nil {
 			freeLoginCache(creds.Username)
-			logger.Error(err)
+			logging.MPMLogger.Errorf("Failed to delete user %s. Reason: %v\n",
+				creds.Username, err)
 			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
 			return
 		}
 
 		respondClient(writer, http.StatusOK, []byte("Your account has been deleted."))
 	} else {
+		logging.MPMLogger.Debugf("Invalid method %s received\n", request.Method)
 		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
 	}
 	freeLoginCache(creds.Username)
@@ -223,6 +238,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 // Free up cache
 func freeUserCache(user string) {
 	cache.cacheMutex.Lock()
+	logging.MPMLogger.Debugf("Deleting user %s from UserCache\n", user)
 	delete(cache.Users, user)
 	cache.cacheMutex.Unlock()
 }
@@ -230,6 +246,7 @@ func freeUserCache(user string) {
 // Free up cache
 func freeLoginCache(user string) {
 	cache.LoginMutex.Lock()
+	logging.MPMLogger.Debugf("Deleting user %s from LoginCache\n", user)
 	delete(cache.Login, user)
 	cache.LoginMutex.Unlock()
 }
