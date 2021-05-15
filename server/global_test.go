@@ -2,12 +2,13 @@ package server
 
 import (
 	"bufio"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
 	"log"
-	"mpm/client"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -429,7 +430,7 @@ func checkResponseSecrets(userReq credentials, respBody []byte) bool {
 	}
 
 	for k, v := range secrets {
-		secrets[k], err = client.DecryptAESGCM([]byte(userReq.Password), v)
+		secrets[k], err = decryptAESGCM([]byte(userReq.Password), v)
 		if err != nil {
 			log.Println(err)
 			return false
@@ -531,4 +532,30 @@ func checkDBEmpty(dbname string) error {
 	}
 
 	return nil
+}
+
+func decryptAESGCM(masterpass, ciphertext []byte) ([]byte, error) {
+	keyLength := 2 * aes.BlockSize
+	key := make([]byte, keyLength)
+
+	if len(masterpass) >= keyLength {
+		copy(key, masterpass[0:keyLength])
+	} else {
+		copy(key, masterpass)
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the nonce from the ciphertext
+	nonce := ciphertext[:12]
+
+	return aesgcm.Open(nil, nonce, ciphertext[12:], nil)
 }
