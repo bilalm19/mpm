@@ -301,48 +301,28 @@ func requestGetSecrets(userReq credentials, pass chan bool, chaos bool) {
 		return
 	}
 
-	if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
-		if response.Code != http.StatusNoContent {
+	if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
+		if response.Code != http.StatusUnauthorized {
 			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 			pass <- false
 			return
 		}
-	} else if _, ok := globalUserTracker.UserMap[userReq.Username]; ok {
-		if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
-			if response.Code != http.StatusUnauthorized {
+	} else {
+		if chaos && ((response.Code == http.StatusUnauthorized &&
+			string(respBody) == "Authentication failed. Invalid username or password") ||
+			response.Code == http.StatusNoContent) {
+			pass <- true
+			return
+		}
+
+		if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
+			if response.Code != http.StatusNoContent {
 				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 				pass <- false
 				return
 			}
 		} else {
-			if chaos && ((response.Code == http.StatusUnauthorized &&
-				string(respBody) == "Authentication failed. Invalid username or password") ||
-				response.Code == http.StatusNoContent) {
-				pass <- true
-				return
-			}
-
-			secrets := make(map[string][]byte)
-			if err = json.Unmarshal(respBody, &secrets); err != nil {
-				log.Println(err)
-				pass <- false
-				return
-			}
-
-			for k, v := range secrets {
-				secrets[k], err = client.DecryptAESGCM([]byte(userReq.Password), v)
-				if err != nil {
-					log.Println(err)
-					pass <- false
-					return
-				}
-				if globalUserTracker.UserMap[userReq.Username].SecretList[k] != string(secrets[k]) {
-					if userReq.Username != "john" || userReq.Password != "123" {
-						pass <- false
-						return
-					}
-				}
-			}
+			pass <- checkResponseSecrets(userReq, respBody)
 		}
 	}
 
@@ -408,35 +388,58 @@ func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder
 		return false
 	}
 
-	if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
-
-		if string(respBody) != "No secrets were sent in request" && response.Code != http.StatusBadRequest {
+	// Since global variable is only going to be accessed for reading at this
+	// point, there should be no issues with data races. Hence, no mutex lock.
+	if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
+		if string(respBody) != "Authentication failed. Invalid username or password" &&
+			response.Code != http.StatusUnauthorized {
 			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 			return false
 		}
-
 	} else {
-		// Since global variable is only going to be accessed for reading at this
-		// point, there should be no issues with data races. Hence, no mutex lock.
-		if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
-			if string(respBody) != "Authentication failed. Invalid username or password" &&
-				response.Code != http.StatusUnauthorized {
+		if chaos && response.Code == http.StatusUnauthorized &&
+			string(respBody) == "Authentication failed. Invalid username or password" {
+			return true
+		}
+
+		if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
+			if string(respBody) != "No secrets were sent in request" && response.Code != http.StatusBadRequest {
 				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 				return false
-			}
-		} else {
-			if chaos && response.Code == http.StatusUnauthorized &&
-				string(respBody) == "Authentication failed. Invalid username or password" {
+			} else {
 				return true
 			}
+		}
 
-			if string(respBody) != "Secrets added" && response.Code != http.StatusOK {
-				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+		if string(respBody) != "Secrets added" && response.Code != http.StatusOK {
+			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+			return false
+		}
+	}
+
+	return true
+}
+
+func checkResponseSecrets(userReq credentials, respBody []byte) bool {
+	var err error
+	secrets := make(map[string][]byte)
+	if err = json.Unmarshal(respBody, &secrets); err != nil {
+		log.Println(err)
+		return false
+	}
+
+	for k, v := range secrets {
+		secrets[k], err = client.DecryptAESGCM([]byte(userReq.Password), v)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
+		if globalUserTracker.UserMap[userReq.Username].SecretList[k] != string(secrets[k]) {
+			if userReq.Username != "john" || userReq.Password != "123" {
 				return false
 			}
 		}
 	}
-
 	return true
 }
 

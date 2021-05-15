@@ -66,12 +66,12 @@ func New() MPMServer {
 
 // StartEdgeServer starts the server that listens for edge devices.
 func (server *MPMServer) StartEdgeServer() error {
-	logging.MPMLogger.Debug("Initializing server")
 	// Initialize seed
 	rand.Seed(time.Now().UnixNano())
 
 	http.HandleFunc("/signup", registerNewUser)
 	http.HandleFunc("/login", serveClient)
+	logging.MPMLogger.Info("Server started")
 	return server.HTTPServer.ListenAndServe()
 }
 
