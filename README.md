@@ -1,5 +1,6 @@
 # MPM
 [![Test](https://github.com/bilalm19/mpm/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/bilalm19/mpm/actions/workflows/test.yml)
+[![CodeQL Analyze](https://github.com/bilalm19/mpm/actions/workflows/codeql-analysis.yml/badge.svg?branch=main)](https://github.com/bilalm19/mpm/actions/workflows/codeql-analysis.yml)
 
 **M**inimal **P**assword **M**anager. An inefficient but potentially secure and simple password manager.
 
