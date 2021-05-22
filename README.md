@@ -2,7 +2,7 @@
 [![Test](https://github.com/bilalm19/mpm/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/bilalm19/mpm/actions/workflows/test.yml)
 [![CodeQL Analyze](https://github.com/bilalm19/mpm/actions/workflows/codeql-analysis.yml/badge.svg?branch=main)](https://github.com/bilalm19/mpm/actions/workflows/codeql-analysis.yml)
 
-**M**inimal **P**assword **M**anager. An inefficient but potentially secure and simple password manager.
+**M**inimal **P**assword **M**anager. An inefficient but potentially secure and simple password manager. You can use the [MPM client](https://github.com/bilalm19/mpmclient) to interact with the server.
 
 Not audited by a security expert.
 
