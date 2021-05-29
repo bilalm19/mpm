@@ -71,6 +71,7 @@ func (server *MPMServer) StartEdgeServer() error {
 
 	http.HandleFunc("/signup", registerNewUser)
 	http.HandleFunc("/login", serveClient)
+	http.HandleFunc("/users", deleteUser)
 	logging.MPMLogger.Info("Server started")
 	return server.HTTPServer.ListenAndServe()
 }
@@ -137,23 +138,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	i := 1
-	for {
-		cache.LoginMutex.Lock()
-		logging.MPMLogger.Debugf("Attempting to add user %s to LoginCache\n", creds.Username)
-		if _, ok := cache.Login[creds.Username]; !ok {
-			cache.Login[creds.Username] = 1
-			cache.LoginMutex.Unlock()
-			logging.MPMLogger.Debugf("Successfully added user %s to LoginCache\n", creds.Username)
-			break
-		}
-		cache.LoginMutex.Unlock()
-		logging.MPMLogger.Debugf("Unable to add user %s to LoginCache\n", creds.Username)
-		time.Sleep(time.Duration(i) * 200000000)
-		if i <= 5 {
-			i++
-		}
-	}
+	add2Cache(creds.Username)
 
 	if request.Method == http.MethodPost {
 		if err = verifyLogin(creds, writer); err != nil {
@@ -210,29 +195,71 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		respondClient(writer, http.StatusOK, marshalledSecrets)
 
 	} else if request.Method == http.MethodDelete {
-		if err = verifyLogin(creds, writer); err != nil {
-			freeLoginCache(creds.Username)
-			logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
-				creds.Username, err)
-			return
-		}
-
-		logging.MPMLogger.Infof("Deleting user %s\n", creds.Username)
-		err = deleteAccount(creds.Username)
-		if err != nil {
-			freeLoginCache(creds.Username)
-			logging.MPMLogger.Errorf("Failed to delete user %s. Reason: %v\n",
-				creds.Username, err)
-			respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
-			return
-		}
-
-		respondClient(writer, http.StatusOK, []byte("Your account has been deleted."))
+		// Delete Secret
 	} else {
 		logging.MPMLogger.Debugf("Invalid method %s received\n", request.Method)
 		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
 	}
 	freeLoginCache(creds.Username)
+}
+
+func deleteUser(writer http.ResponseWriter, request *http.Request) {
+	if request.Body == nil {
+		respondClient(writer, http.StatusBadRequest, []byte("400 Bad Request"))
+		return
+	} else if request.Method != http.MethodDelete {
+		logging.MPMLogger.Debugf("Invalid method %s received\n", request.Method)
+		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
+	}
+
+	creds, err := decodeClientMessage(request.Body, writer)
+	if err != nil {
+		logging.MPMLogger.Error(err)
+		return
+	}
+
+	add2Cache(creds.Username)
+
+	if err = verifyLogin(creds, writer); err != nil {
+		freeLoginCache(creds.Username)
+		logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
+			creds.Username, err)
+		return
+	}
+
+	logging.MPMLogger.Infof("Deleting user %s\n", creds.Username)
+	err = deleteAccount(creds.Username)
+	if err != nil {
+		freeLoginCache(creds.Username)
+		logging.MPMLogger.Errorf("Failed to delete user %s. Reason: %v\n",
+			creds.Username, err)
+		respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
+		return
+	}
+
+	freeLoginCache(creds.Username)
+	respondClient(writer, http.StatusOK, []byte("Your account has been deleted."))
+
+}
+
+func add2Cache(user string) {
+	i := 1
+	for {
+		cache.LoginMutex.Lock()
+		logging.MPMLogger.Debugf("Attempting to add user %s to LoginCache\n", user)
+		if _, ok := cache.Login[user]; !ok {
+			cache.Login[user] = 1
+			cache.LoginMutex.Unlock()
+			logging.MPMLogger.Debugf("Successfully added user %s to LoginCache\n", user)
+			break
+		}
+		cache.LoginMutex.Unlock()
+		logging.MPMLogger.Debugf("Unable to add user %s to LoginCache\n", user)
+		time.Sleep(time.Duration(i) * 200000000)
+		if i <= 5 {
+			i++
+		}
+	}
 }
 
 // Free up cache

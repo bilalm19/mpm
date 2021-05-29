@@ -338,7 +338,7 @@ func requestDeleteAccount(userReq credentials, pass chan bool) {
 		return
 	}
 
-	serveClient(response, request)
+	deleteUser(response, request)
 	respBody, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Println(err)
