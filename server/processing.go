@@ -257,6 +257,29 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 	return nil
 }
 
+// Delete all the user's secrets that are listed in the request. Even if no
+// secrets were matched with the request, the function will not return err.
+// The only exception to this rule is if the user does not exist in the secret
+// database (never stored a secret).
+func deleteUserSecrets(creds credentials) error {
+	secrets, err := getUserSecrets(creds.Username)
+	if err != nil {
+		return err
+	}
+
+	for k := range creds.SecretList {
+		delete(secrets.SecretList, k)
+	}
+
+	mstoreSecrets, err := json.Marshal(secrets)
+	mstoreSecrets = append(mstoreSecrets, []byte("\n")...)
+	if err != nil {
+		return err
+	}
+
+	return updateSecretsDatabase(creds.Username, mstoreSecrets, true)
+}
+
 // Delete the user's account along with any secrets associated with them.
 func deleteAccount(user string) error {
 	if err := removeCredentials(user); err != nil {

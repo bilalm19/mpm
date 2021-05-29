@@ -200,6 +200,22 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 			respondClient(writer, http.StatusBadRequest, []byte("No secrets were sent in request"))
 			return
 		}
+
+		err = deleteUserSecrets(creds)
+		if err != nil {
+			switch err.(type) {
+			case *NoSecrets:
+				respondClient(writer, http.StatusNoContent, []byte(""))
+			default:
+				logging.MPMLogger.Error(err)
+				respondClient(writer, http.StatusInternalServerError, []byte("500 Server Error"))
+			}
+			freeLoginCache(creds.Username)
+			return
+		}
+
+		// This response will be used even if no secrets were deleted.
+		respondClient(writer, http.StatusOK, []byte("Secrets deleted"))
 	}
 
 	freeLoginCache(creds.Username)
