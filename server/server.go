@@ -132,6 +132,13 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	if request.Method != http.MethodPost && request.Method != http.MethodGet &&
+		request.Method != http.MethodDelete {
+		logging.MPMLogger.Debugf("Invalid method %s received\n", request.Method)
+		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
+		return
+	}
+
 	creds, err := decodeClientMessage(request.Body, writer)
 	if err != nil {
 		logging.MPMLogger.Error(err)
@@ -140,14 +147,14 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 
 	add2Cache(creds.Username)
 
-	if request.Method == http.MethodPost {
-		if err = verifyLogin(creds, writer); err != nil {
-			freeLoginCache(creds.Username)
-			logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
-				creds.Username, err)
-			return
-		}
+	if err = verifyLogin(creds, writer); err != nil {
+		freeLoginCache(creds.Username)
+		logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
+			creds.Username, err)
+		return
+	}
 
+	if request.Method == http.MethodPost {
 		if creds.SecretList == nil || len(creds.SecretList) == 0 {
 			freeLoginCache(creds.Username)
 			respondClient(writer, http.StatusBadRequest, []byte("No secrets were sent in request"))
@@ -163,12 +170,6 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 
 		respondClient(writer, http.StatusOK, []byte("Secrets added"))
 	} else if request.Method == http.MethodGet {
-		if err = verifyLogin(creds, writer); err != nil {
-			freeLoginCache(creds.Username)
-			logging.MPMLogger.Errorf("Failed to verify %s. Reason: %v\n",
-				creds.Username, err)
-			return
-		}
 		secrets, err := getUserSecrets(creds.Username)
 		if err != nil {
 			switch err.(type) {
@@ -193,13 +194,14 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		}
 
 		respondClient(writer, http.StatusOK, marshalledSecrets)
-
 	} else if request.Method == http.MethodDelete {
-		// Delete Secret
-	} else {
-		logging.MPMLogger.Debugf("Invalid method %s received\n", request.Method)
-		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
+		if creds.SecretList == nil || len(creds.SecretList) == 0 {
+			freeLoginCache(creds.Username)
+			respondClient(writer, http.StatusBadRequest, []byte("No secrets were sent in request"))
+			return
+		}
 	}
+
 	freeLoginCache(creds.Username)
 }
 
