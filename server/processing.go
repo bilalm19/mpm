@@ -257,18 +257,28 @@ func updateSecretsDatabase(user string, data []byte, hasSecrets bool) error {
 	return nil
 }
 
-// Delete all the user's secrets that are listed in the request. Even if no
-// secrets were matched with the request, the function will not return err.
-// The only exception to this rule is if the user does not exist in the secret
-// database (never stored a secret).
-func deleteUserSecrets(creds credentials) error {
+// Delete or update all the user's secrets that are listed in the request. Even
+// if no secrets were matched with the request, the function will not return
+// error. The only exception to this rule is if the user does not exist in the
+// secret database (never stored a secret).
+func updateUserSecrets(creds credentials, del bool) error {
 	secrets, err := getUserSecrets(creds.Username)
 	if err != nil {
 		return err
 	}
 
-	for k := range creds.SecretList {
-		delete(secrets.SecretList, k)
+	for k, v := range creds.SecretList {
+		if del {
+			delete(secrets.SecretList, k)
+		} else {
+			if _, ok := secrets.SecretList[k]; !ok {
+				ciphertext, err := encryptAESGCM([]byte(creds.Password), []byte(v))
+				if err != nil {
+					return err
+				}
+				secrets.SecretList[k] = ciphertext
+			}
+		}
 	}
 
 	mstoreSecrets, err := json.Marshal(secrets)

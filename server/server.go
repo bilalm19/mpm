@@ -133,7 +133,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	if request.Method != http.MethodPost && request.Method != http.MethodGet &&
-		request.Method != http.MethodDelete {
+		request.Method != http.MethodDelete && request.Method == http.MethodPatch {
 		logging.MPMLogger.Debugf("Invalid method %s received\n", request.Method)
 		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
 		return
@@ -194,14 +194,18 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 		}
 
 		respondClient(writer, http.StatusOK, marshalledSecrets)
-	} else if request.Method == http.MethodDelete {
+	} else if request.Method == http.MethodPatch || request.Method == http.MethodDelete {
 		if creds.SecretList == nil || len(creds.SecretList) == 0 {
 			freeLoginCache(creds.Username)
 			respondClient(writer, http.StatusBadRequest, []byte("No secrets were sent in request"))
 			return
 		}
 
-		err = deleteUserSecrets(creds)
+		if request.Method == http.MethodPatch {
+			err = updateUserSecrets(creds, false)
+		} else {
+			err = updateUserSecrets(creds, true)
+		}
 		if err != nil {
 			switch err.(type) {
 			case *NoSecrets:
@@ -214,8 +218,12 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 
-		// This response will be used even if no secrets were deleted.
-		respondClient(writer, http.StatusOK, []byte("Secrets deleted"))
+		// This response will be used even if no secrets were updated/deleted.
+		if request.Method == http.MethodPatch {
+			respondClient(writer, http.StatusOK, []byte("Secrets updated"))
+		} else {
+			respondClient(writer, http.StatusOK, []byte("Secrets deleted"))
+		}
 	}
 
 	freeLoginCache(creds.Username)
