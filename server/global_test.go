@@ -139,6 +139,122 @@ func TestSimpleGetSecrets(t *testing.T) {
 	}
 }
 
+func TestSimpleUpdateSecretsWithNoSecretsStored(t *testing.T) {
+	secrets := make(map[string]string)
+	secrets["service1"] = "123"
+
+	creds := credentials{
+		Username:   "nat",
+		Password:   "12345678",
+		SecretList: secrets,
+	}
+
+	response, request, err := prepareRequest(creds, http.MethodPatch)
+	if err != nil {
+		log.Printf("Error preparing request: %v", err)
+		t.FailNow()
+	}
+
+	serveClient(response, request)
+	respBody, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response: %v", err)
+		t.FailNow()
+	}
+
+	if response.Code != http.StatusNoContent {
+		log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+		t.FailNow()
+	}
+
+	response, request, err = prepareRequest(creds, http.MethodGet)
+	if err != nil {
+		log.Printf("Error preparing request: %v", err)
+		t.FailNow()
+	}
+
+	serveClient(response, request)
+	respBody, err = ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response: %v", err)
+		t.FailNow()
+	}
+
+	if response.Code != http.StatusNoContent {
+		log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+		t.Fail()
+	}
+}
+
+func TestSimpleUpdateSecretsWithSecretsStored(t *testing.T) {
+	secrets := make(map[string]string)
+	secrets["service1"] = "123"
+	secrets["service2"] = "443"
+
+	creds := credentials{
+		Username:   "bat",
+		Password:   "123",
+		SecretList: secrets,
+	}
+
+	response, request, err := prepareRequest(creds, http.MethodPatch)
+	if err != nil {
+		log.Printf("Error preparing request: %v", err)
+		t.FailNow()
+	}
+
+	serveClient(response, request)
+	respBody, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response: %v", err)
+		t.FailNow()
+	}
+
+	if string(respBody) != "Secrets updated" && response.Code != http.StatusOK {
+		log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+		t.FailNow()
+	}
+
+	response, request, err = prepareRequest(creds, http.MethodGet)
+	if err != nil {
+		log.Printf("Error preparing request: %v", err)
+		t.FailNow()
+	}
+
+	serveClient(response, request)
+	respBody, err = ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response: %v", err)
+		t.FailNow()
+	}
+
+	respSecrets := make(map[string][]byte)
+	if err = json.Unmarshal(respBody, &respSecrets); err != nil {
+		log.Printf("Error unmarshalling secrets: %v", err)
+		t.FailNow()
+	}
+
+	respLen := len(respSecrets)
+	if respLen != 1 {
+		log.Printf("Expected number of secrets in response to be 1. Got %d instead.", respLen)
+		t.FailNow()
+	}
+
+	for k, v := range respSecrets {
+		respSecrets[k], err = decryptAESGCM([]byte(creds.Password), v)
+		if err != nil {
+			log.Printf("Error decrypting secret: %v", err)
+			t.FailNow()
+		}
+
+		strSecret := string(respSecrets[k])
+		if strSecret != secrets[k] && k == "service1" {
+			log.Printf("Secrets do not match. Expected %s, got %s", secrets[k], strSecret)
+			t.FailNow()
+		}
+	}
+}
+
 func TestSimpleDeleteSecrets(t *testing.T) {
 	var pass [10]chan bool
 	users := prepareUsers()

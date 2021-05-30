@@ -271,7 +271,7 @@ func updateUserSecrets(creds credentials, del bool) error {
 		if del {
 			delete(secrets.SecretList, k)
 		} else {
-			if _, ok := secrets.SecretList[k]; !ok {
+			if _, ok := secrets.SecretList[k]; ok {
 				ciphertext, err := encryptAESGCM([]byte(creds.Password), []byte(v))
 				if err != nil {
 					return err
