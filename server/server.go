@@ -133,7 +133,7 @@ func serveClient(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	if request.Method != http.MethodPost && request.Method != http.MethodGet &&
-		request.Method != http.MethodDelete && request.Method == http.MethodPatch {
+		request.Method != http.MethodDelete && request.Method != http.MethodPatch {
 		logging.MPMLogger.Debugf("Invalid method %s received\n", request.Method)
 		respondClient(writer, http.StatusBadRequest, []byte("Invalid method"))
 		return
