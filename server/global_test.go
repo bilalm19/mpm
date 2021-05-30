@@ -139,6 +139,22 @@ func TestSimpleGetSecrets(t *testing.T) {
 	}
 }
 
+func TestSimpleDeleteSecrets(t *testing.T) {
+	var pass [10]chan bool
+	users := prepareUsers()
+
+	for i := range pass {
+		pass[i] = make(chan bool)
+		go requestDeleteSecrets(users[i], pass[i])
+	}
+
+	for i := range pass {
+		if !<-pass[i] {
+			t.Errorf("Delete secret request number %d failed", i)
+		}
+	}
+}
+
 func TestSimpleDeleteAccount(t *testing.T) {
 	var pass [10]chan bool
 	users := prepareUsers()
@@ -283,7 +299,7 @@ func requestAddSecrets(userReq credentials, pass chan bool, chaos bool) {
 
 	serveClient(response, request)
 
-	pass <- checkLoginResponse(userReq, response, chaos)
+	pass <- checkLoginResponse(userReq, response, http.MethodPost, chaos)
 }
 
 func requestGetSecrets(userReq credentials, pass chan bool, chaos bool) {
@@ -328,6 +344,19 @@ func requestGetSecrets(userReq credentials, pass chan bool, chaos bool) {
 	}
 
 	pass <- true
+}
+
+func requestDeleteSecrets(userReq credentials, pass chan bool) {
+	response, request, err := prepareRequest(userReq, http.MethodDelete)
+	if err != nil {
+		log.Println(err)
+		pass <- false
+		return
+	}
+
+	serveClient(response, request)
+
+	pass <- checkLoginResponse(userReq, response, http.MethodDelete, false)
 }
 
 func requestDeleteAccount(userReq credentials, pass chan bool) {
@@ -382,7 +411,7 @@ func prepareRequest(creds credentials, method string) (*httptest.ResponseRecorde
 	return response, request, nil
 }
 
-func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder, chaos bool) bool {
+func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder, method string, chaos bool) bool {
 	respBody, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		log.Println(err)
@@ -412,9 +441,16 @@ func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder
 			}
 		}
 
-		if string(respBody) != "Secrets added" && response.Code != http.StatusOK {
-			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
-			return false
+		if method == http.MethodPost {
+			if string(respBody) != "Secrets added" && response.Code != http.StatusOK {
+				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+				return false
+			}
+		} else if method == http.MethodDelete {
+			if string(respBody) != "Secrets deleted" && response.Code != http.StatusOK {
+				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+				return false
+			}
 		}
 	}
 
