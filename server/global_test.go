@@ -311,39 +311,8 @@ func requestGetSecrets(userReq credentials, pass chan bool, chaos bool) {
 	}
 
 	serveClient(response, request)
-	respBody, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		log.Println(err)
-		pass <- false
-		return
-	}
 
-	if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
-		if response.Code != http.StatusUnauthorized {
-			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
-			pass <- false
-			return
-		}
-	} else {
-		if chaos && ((response.Code == http.StatusUnauthorized &&
-			string(respBody) == "Authentication failed. Invalid username or password") ||
-			response.Code == http.StatusNoContent) {
-			pass <- true
-			return
-		}
-
-		if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
-			if response.Code != http.StatusNoContent {
-				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
-				pass <- false
-				return
-			}
-		} else {
-			pass <- checkResponseSecrets(userReq, respBody)
-		}
-	}
-
-	pass <- true
+	pass <- checkLoginResponse(userReq, response, http.MethodGet, chaos)
 }
 
 func requestDeleteSecrets(userReq credentials, pass chan bool) {
@@ -418,22 +387,32 @@ func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder
 		return false
 	}
 
+	strBody := string(respBody)
+
 	// Since global variable is only going to be accessed for reading at this
 	// point, there should be no issues with data races. Hence, no mutex lock.
 	if globalUserTracker.UserMap[userReq.Username].Password != userReq.Password {
-		if string(respBody) != "Authentication failed. Invalid username or password" &&
+		if strBody != "Authentication failed. Invalid username or password" &&
 			response.Code != http.StatusUnauthorized {
 			log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 			return false
 		}
 	} else {
 		if chaos && response.Code == http.StatusUnauthorized &&
-			string(respBody) == "Authentication failed. Invalid username or password" {
+			strBody == "Authentication failed. Invalid username or password" {
+			return true
+		}
+
+		if chaos && response.Code == http.StatusNoContent && method == http.MethodGet {
 			return true
 		}
 
 		if userReq.SecretList == nil || len(userReq.SecretList) == 0 {
-			if string(respBody) != "No secrets were sent in request" && response.Code != http.StatusBadRequest {
+			if response.Code != http.StatusNoContent && method == http.MethodGet {
+				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
+				return false
+			} else if strBody != "No secrets were sent in request" && response.Code != http.StatusBadRequest &&
+				method != http.MethodGet {
 				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 				return false
 			} else {
@@ -442,12 +421,14 @@ func checkLoginResponse(userReq credentials, response *httptest.ResponseRecorder
 		}
 
 		if method == http.MethodPost {
-			if string(respBody) != "Secrets added" && response.Code != http.StatusOK {
+			if strBody != "Secrets added" && response.Code != http.StatusOK {
 				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 				return false
 			}
+		} else if method == http.MethodGet {
+			return checkResponseSecrets(userReq, respBody)
 		} else if method == http.MethodDelete {
-			if string(respBody) != "Secrets deleted" && response.Code != http.StatusOK {
+			if strBody != "Secrets deleted" && response.Code != http.StatusOK {
 				log.Printf("StatusCode: %d; Response: %s\n", response.Code, respBody)
 				return false
 			}
